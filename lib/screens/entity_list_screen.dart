@@ -30,7 +30,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
   Future<void> _loadEntities() async {
     setState(() {
       _isLoading = true;
-      _statusMessage = ''; // Clear any previous status message
+      _statusMessage = '';
     });
 
     try {

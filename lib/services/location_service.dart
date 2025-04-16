@@ -1,4 +1,3 @@
-// lib/services/location_service.dart
 import 'package:location/location.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -39,14 +38,12 @@ class LocationService {
         return null;
       }
 
-      // Configure location service for better accuracy
       await _location.changeSettings(
         accuracy: LocationAccuracy.high,
-        interval: 1000, // Update interval in milliseconds
-        distanceFilter: 5, // Minimum distance in meters device must move before update
+        interval: 1000,
+        distanceFilter: 5,
       );
 
-      // Get current location
       final locationData = await _location.getLocation().timeout(
         const Duration(seconds: 10),
         onTimeout: () {
@@ -65,7 +62,6 @@ class LocationService {
     }
   }
 
-  // Default coordinates for Bangladesh if location is not available
   LatLng getDefaultLocation() {
     return const LatLng(23.6850, 90.3563); // Center of Bangladesh
   }

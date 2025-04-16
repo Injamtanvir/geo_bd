@@ -78,7 +78,6 @@ class ImageUtils {
     }
   }
 
-  // Convert image file to base64 string (can be useful for API uploads)
   static Future<String> fileToBase64(File file) async {
     try {
       final bytes = await file.readAsBytes();
@@ -89,7 +88,6 @@ class ImageUtils {
     }
   }
 
-  // Parse base64 string to image file
   static Future<File> base64ToFile(String base64String, String fileName) async {
     try {
       final bytes = base64.decode(base64String); // Use base64.decode instead of base64Decode

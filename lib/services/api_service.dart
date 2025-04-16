@@ -1,4 +1,3 @@
-// lib/services/api_service.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -9,7 +8,6 @@ import '../models/entity.dart';
 class ApiService {
   final String baseUrl = 'https://labs.anontech.info/cse489/t3/api.php';
 
-  // Simple network check - directly tries the API endpoint
   Future<bool> isConnected() async {
     try {
       final response = await http.get(Uri.parse(baseUrl));
@@ -20,7 +18,6 @@ class ApiService {
     }
   }
 
-  // Get all entities from the API
   Future<List<Entity>> getEntities() async {
     try {
       final response = await http.get(Uri.parse(baseUrl));
@@ -41,7 +38,6 @@ class ApiService {
     }
   }
 
-  // Create a new entity using standard HTTP multipart request
   Future<int> createEntity({
     required String title,
     required double lat,
@@ -49,16 +45,13 @@ class ApiService {
     required File imageFile,
   }) async {
     try {
-      // Create a multipart request
       final uri = Uri.parse(baseUrl);
       final request = http.MultipartRequest('POST', uri);
 
-      // Add text fields
       request.fields['title'] = title;
       request.fields['lat'] = lat.toString();
       request.fields['lon'] = lon.toString();
 
-      // Add the image file
       final fileStream = http.ByteStream(imageFile.openRead());
       final fileLength = await imageFile.length();
 
@@ -94,7 +87,6 @@ class ApiService {
     }
   }
 
-  // Update an existing entity
   Future<bool> updateEntity({
     required int id,
     required String title,
@@ -103,7 +95,6 @@ class ApiService {
     File? imageFile,
   }) async {
     try {
-      // Create a multipart request for PUT
       final uri = Uri.parse(baseUrl);
       final request = http.MultipartRequest('PUT', uri);
 
@@ -129,7 +120,6 @@ class ApiService {
         request.files.add(multipartFile);
       }
 
-      // Send the request
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 

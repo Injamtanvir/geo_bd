@@ -8,20 +8,16 @@ import 'services/auth_service.dart';
 import 'services/db_helper.dart';
 
 void main() async {
-  // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Initialize the database
   final dbHelper = DatabaseHelper();
   await dbHelper.database;
 
-  // Run the app
   runApp(const MyApp());
 }
 
@@ -66,12 +62,7 @@ class AuthWrapper extends StatelessWidget {
 
         final isLoggedIn = snapshot.data ?? false;
 
-        // For demo purposes, skip authentication for now
-        // In a real app, you would enforce authentication
-        // return isLoggedIn ? const MapScreen() : const AuthScreen();
-
-        // Skip authentication for now since the server authentication part
-        // might not be ready
+        // Try to add security features using MongoDB Atlas Cluster but due to time sortage couldn't do it Properly
         return const MapScreen();
       },
     );

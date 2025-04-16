@@ -25,7 +25,7 @@ class _MapScreenState extends State<MapScreen> {
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
-  String _statusMessage = ''; // Changed from _errorMessage to _statusMessage
+  String _statusMessage = '';
 
   // Default position (Center of Bangladesh)
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
@@ -40,11 +40,10 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isLoading = true;
       _markers.clear();
-      _statusMessage = ''; // Clear previous status message
+      _statusMessage = '';
     });
 
     try {
-      // Try to get entities from the server first
       print('Attempting to load entities from API...');
       try {
         final apiEntities = await _apiService.getEntities();
@@ -53,7 +52,6 @@ class _MapScreenState extends State<MapScreen> {
           print('Loaded ${apiEntities.length} entities from API successfully');
           _entities = apiEntities;
 
-          // Save to local database for offline access
           for (var entity in _entities) {
             await _dbHelper.insertEntity(entity);
           }
@@ -68,7 +66,6 @@ class _MapScreenState extends State<MapScreen> {
       } catch (e) {
         print('API error, falling back to local: $e');
 
-        // Try loading from local DB if API fails
         _entities = await _dbHelper.getEntities();
 
         if (_entities.isEmpty) {
@@ -90,7 +87,6 @@ class _MapScreenState extends State<MapScreen> {
       });
     }
 
-    // Create markers for entities
     _createMarkers();
 
     setState(() {
@@ -183,8 +179,8 @@ class _MapScreenState extends State<MapScreen> {
           );
         },
       );
-    } else {
-      // It's a remote URL
+    }
+    else {
       return CachedNetworkImage(
         imageUrl: entity.getFullImageUrl(),
         fit: BoxFit.cover,

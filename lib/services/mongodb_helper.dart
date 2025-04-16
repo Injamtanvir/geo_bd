@@ -1,4 +1,3 @@
-// lib/services/mongodb_helper.dart
 import 'package:mongo_dart/mongo_dart.dart';
 import '../models/entity.dart';
 
@@ -6,7 +5,7 @@ class MongoDBHelper {
   static final MongoDBHelper _instance = MongoDBHelper._internal();
   factory MongoDBHelper() => _instance;
 
-  // MongoDB connection URL
+  // My MongoDB connection URL
   final String _connectionString =
       'mongodb+srv://GeoBangladeshApp:GeoBangladeshApp123@geobangladeshapp.qty9xmu.mongodb.net/?retryWrites=true&w=majority&appName=GeoBangladeshApp';
 
@@ -15,7 +14,7 @@ class MongoDBHelper {
 
   MongoDBHelper._internal();
 
-  // Connect to MongoDB
+  // Connecting to MongoDB
   Future<void> connect() async {
     if (_db != null && _db!.isConnected) return;
 
@@ -30,14 +29,12 @@ class MongoDBHelper {
     }
   }
 
-  // Check connection and reconnect if needed
   Future<void> _ensureConnected() async {
     if (_db == null || !_db!.isConnected) {
       await connect();
     }
   }
 
-  // Disconnect from MongoDB
   Future<void> close() async {
     if (_db != null && _db!.isConnected) {
       await _db!.close();
@@ -99,7 +96,6 @@ class MongoDBHelper {
     }
   }
 
-  // Update entity in MongoDB
   Future<bool> updateEntity(Entity entity) async {
     try {
       await _ensureConnected();
@@ -127,7 +123,6 @@ class MongoDBHelper {
     }
   }
 
-  // Delete entity from MongoDB
   Future<bool> deleteEntity(int entityId) async {
     try {
       await _ensureConnected();
@@ -144,7 +139,6 @@ class MongoDBHelper {
     }
   }
 
-  // Sync local entities with MongoDB
   Future<void> syncEntities(List<Entity> entities) async {
     try {
       await _ensureConnected();
@@ -154,14 +148,11 @@ class MongoDBHelper {
       }
 
       for (var entity in entities) {
-        // Check if entity already exists in MongoDB
         final existing = await _collection!.findOne(where.eq('original_id', entity.id));
 
         if (existing == null) {
-          // Entity doesn't exist, create it
           await saveEntity(entity);
         } else {
-          // Entity exists, update it
           await updateEntity(entity);
         }
       }
