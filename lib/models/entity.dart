@@ -1,3 +1,4 @@
+// lib/models/entity.dart
 class Entity {
   final int? id;
   final String title;
@@ -34,8 +35,16 @@ class Entity {
   }
 
   String getFullImageUrl() {
-    if (image == null) return '';
-    return 'https://labs.anontech.info/cse489/t3/$image';
+    if (image == null || image!.isEmpty) return '';
+
+    // If it's already a full URL, return it
+    if (image!.startsWith('http')) return image!;
+
+    // If it's a local file path, return as is
+    if (image!.startsWith('/')) return image!;
+
+    // Otherwise, it's a relative path from the API - add the base URL
+    return 'https://labs.anontech.info/cse489/t3/${image!}';
   }
 
   Entity copyWith({

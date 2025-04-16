@@ -7,7 +7,6 @@ import '../widgets/entity_card.dart';
 
 class EntityListScreen extends StatefulWidget {
   static const routeName = '/entity-list';
-
   const EntityListScreen({Key? key}) : super(key: key);
 
   @override
@@ -17,10 +16,10 @@ class EntityListScreen extends StatefulWidget {
 class _EntityListScreenState extends State<EntityListScreen> {
   final ApiService _apiService = ApiService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
-
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
+  String _statusMessage = ''; // Changed from _errorMessage to _statusMessage
 
   @override
   void initState() {
@@ -31,33 +30,53 @@ class _EntityListScreenState extends State<EntityListScreen> {
   Future<void> _loadEntities() async {
     setState(() {
       _isLoading = true;
+      _statusMessage = ''; // Clear any previous status message
     });
 
     try {
-      _entities = await _apiService.getEntities();
+      // Always try to load from server first
+      print('Attempting to load entities from API...');
+      try {
+        final apiEntities = await _apiService.getEntities();
 
-      // Save to local database for offline access
-      for (var entity in _entities) {
-        await _dbHelper.insertEntity(entity);
+        if (apiEntities.isNotEmpty) {
+          print('Loaded ${apiEntities.length} entities from API successfully');
+          _entities = apiEntities;
+
+          // Save to local database for offline access
+          for (var entity in _entities) {
+            await _dbHelper.insertEntity(entity);
+          }
+
+          setState(() {
+            _isOfflineMode = false;
+          });
+        } else {
+          print('API returned empty entity list');
+        }
+      } catch (e) {
+        print('API error, falling back to local: $e');
+
+        // Try loading from local DB if API fails
+        _entities = await _dbHelper.getEntities();
+
+        if (_entities.isEmpty) {
+          print('Local database also returned empty entity list');
+        } else {
+          print('Loaded ${_entities.length} entities from local database');
+        }
+
+        setState(() {
+          _isOfflineMode = true;
+          _statusMessage = 'Using offline data. Check your internet connection.';
+        });
       }
-
-      setState(() {
-        _isOfflineMode = false;
-      });
     } catch (e) {
       print('Error loading entities: $e');
-      // Fallback to local database if API fails
-      _entities = await _dbHelper.getEntities();
+      _entities = [];
       setState(() {
-        _isOfflineMode = true;
+        _statusMessage = 'Failed to load entities: $e';
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Using offline data. Check your internet connection.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
     }
 
     setState(() {
@@ -69,11 +88,9 @@ class _EntityListScreenState extends State<EntityListScreen> {
     // Only allow deleting local entities in offline mode
     if (_isOfflineMode) {
       await _dbHelper.deleteEntity(entity.id!);
-
       setState(() {
         _entities.removeWhere((e) => e.id == entity.id);
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Entity deleted locally'),
@@ -82,7 +99,8 @@ class _EntityListScreenState extends State<EntityListScreen> {
       );
     } else {
       // In online mode, we would need a DELETE API endpoint
-      // Since the API doesn't support deletion in the requirements, we'll just show a message
+      // Since the API doesn't support deletion in the requirements, we'll
+      // just show a message
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('DELETE operation not supported by the API'),
@@ -107,25 +125,41 @@ class _EntityListScreenState extends State<EntityListScreen> {
       drawer: const AppDrawer(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _entities.isEmpty
-          ? const Center(
-        child: Text(
-          'No entities found',
-          style: TextStyle(fontSize: 18),
-        ),
-      )
-          : RefreshIndicator(
-        onRefresh: _loadEntities,
-        child: ListView.builder(
-          itemCount: _entities.length,
-          itemBuilder: (ctx, index) {
-            final entity = _entities[index];
-            return EntityCard(
-              entity: entity,
-              onDelete: () => _deleteEntity(entity),
-            );
-          },
-        ),
+          : Column(
+        children: [
+          if (_statusMessage.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.amber,
+              width: double.infinity,
+              child: Text(
+                _statusMessage,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          Expanded(
+            child: _entities.isEmpty
+                ? const Center(
+              child: Text(
+                'No entities found',
+                style: TextStyle(fontSize: 18),
+              ),
+            )
+                : RefreshIndicator(
+              onRefresh: _loadEntities,
+              child: ListView.builder(
+                itemCount: _entities.length,
+                itemBuilder: (ctx, index) {
+                  final entity = _entities[index];
+                  return EntityCard(
+                    entity: entity,
+                    onDelete: () => _deleteEntity(entity),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,3 +1,4 @@
+// lib/services/location_service.dart
 import 'package:location/location.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -7,34 +8,51 @@ class LocationService {
   PermissionStatus? _permissionGranted;
 
   Future<bool> requestPermission() async {
-    _serviceEnabled = await _location.serviceEnabled();
-    if (!_serviceEnabled) {
-      _serviceEnabled = await _location.requestService();
+    try {
+      _serviceEnabled = await _location.serviceEnabled();
       if (!_serviceEnabled) {
-        return false;
+        _serviceEnabled = await _location.requestService();
+        if (!_serviceEnabled) {
+          return false;
+        }
       }
-    }
 
-    _permissionGranted = await _location.hasPermission();
-    if (_permissionGranted == PermissionStatus.denied) {
-      _permissionGranted = await _location.requestPermission();
-      if (_permissionGranted != PermissionStatus.granted) {
-        return false;
+      _permissionGranted = await _location.hasPermission();
+      if (_permissionGranted == PermissionStatus.denied) {
+        _permissionGranted = await _location.requestPermission();
+        if (_permissionGranted != PermissionStatus.granted) {
+          return false;
+        }
       }
-    }
 
-    return true;
+      return true;
+    } catch (e) {
+      print('Error requesting location permission: $e');
+      return false;
+    }
   }
 
   Future<LatLng?> getCurrentLocation() async {
     try {
       final hasPermission = await requestPermission();
-
       if (!hasPermission) {
         return null;
       }
 
-      final locationData = await _location.getLocation();
+      // Configure location service for better accuracy
+      await _location.changeSettings(
+        accuracy: LocationAccuracy.high,
+        interval: 1000, // Update interval in milliseconds
+        distanceFilter: 5, // Minimum distance in meters device must move before update
+      );
+
+      // Get current location
+      final locationData = await _location.getLocation().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Location request timed out');
+        },
+      );
 
       if (locationData.latitude == null || locationData.longitude == null) {
         return null;

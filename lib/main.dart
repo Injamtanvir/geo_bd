@@ -5,17 +5,24 @@ import 'screens/entity_form_screen.dart';
 import 'screens/entity_list_screen.dart';
 import 'screens/auth_screen.dart';
 import 'services/auth_service.dart';
+import 'services/db_helper.dart';
 
-void main() {
+void main() async {
+  // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set preferred orientations
-  SystemChrome.setPreferredOrientations([
+  await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
-  ]).then((_) {
-    runApp(const MyApp());
-  });
+  ]);
+
+  // Initialize the database
+  final dbHelper = DatabaseHelper();
+  await dbHelper.database;
+
+  // Run the app
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -63,7 +70,8 @@ class AuthWrapper extends StatelessWidget {
         // In a real app, you would enforce authentication
         // return isLoggedIn ? const MapScreen() : const AuthScreen();
 
-        // Skip authentication for now since the server authentication part might not be ready
+        // Skip authentication for now since the server authentication part
+        // might not be ready
         return const MapScreen();
       },
     );

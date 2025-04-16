@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,7 +10,6 @@ import '../widgets/app_drawer.dart';
 
 class MapScreen extends StatefulWidget {
   static const routeName = '/map';
-
   const MapScreen({Key? key}) : super(key: key);
 
   @override
@@ -20,12 +20,12 @@ class _MapScreenState extends State<MapScreen> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
-
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
+  String _statusMessage = ''; // Changed from _errorMessage to _statusMessage
 
   // Default position (Center of Bangladesh)
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
@@ -39,36 +39,58 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _loadEntities() async {
     setState(() {
       _isLoading = true;
+      _markers.clear();
+      _statusMessage = ''; // Clear previous status message
     });
 
     try {
-      _entities = await _apiService.getEntities();
+      // Try to get entities from the server first
+      print('Attempting to load entities from API...');
+      try {
+        final apiEntities = await _apiService.getEntities();
 
-      // Save to local database for offline access
-      for (var entity in _entities) {
-        await _dbHelper.insertEntity(entity);
+        if (apiEntities.isNotEmpty) {
+          print('Loaded ${apiEntities.length} entities from API successfully');
+          _entities = apiEntities;
+
+          // Save to local database for offline access
+          for (var entity in _entities) {
+            await _dbHelper.insertEntity(entity);
+          }
+
+          setState(() {
+            _isOfflineMode = false;
+          });
+        } else {
+          print('API returned empty entity list');
+          throw Exception('No entities found on server');
+        }
+      } catch (e) {
+        print('API error, falling back to local: $e');
+
+        // Try loading from local DB if API fails
+        _entities = await _dbHelper.getEntities();
+
+        if (_entities.isEmpty) {
+          print('Local database also returned empty entity list');
+        } else {
+          print('Loaded ${_entities.length} entities from local database');
+        }
+
+        setState(() {
+          _isOfflineMode = true;
+          _statusMessage = 'Using offline data. Check your internet connection.';
+        });
       }
-
-      setState(() {
-        _isOfflineMode = false;
-      });
     } catch (e) {
       print('Error loading entities: $e');
-      // Fallback to local database if API fails
-      _entities = await _dbHelper.getEntities();
+      _entities = [];
       setState(() {
-        _isOfflineMode = true;
+        _statusMessage = 'Failed to load entities: $e';
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Using offline data. Check your internet connection.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
     }
 
-    // Create markers for all entities
+    // Create markers for entities
     _createMarkers();
 
     setState(() {
@@ -80,18 +102,26 @@ class _MapScreenState extends State<MapScreen> {
     _markers.clear();
 
     for (var entity in _entities) {
-      final marker = Marker(
-        markerId: MarkerId(entity.id.toString()),
-        position: LatLng(entity.lat, entity.lon),
-        infoWindow: InfoWindow(
-          title: entity.title,
-          snippet: 'Tap for details',
-          onTap: () => _showEntityDetails(entity),
-        ),
-      );
+      try {
+        print('Creating marker for entity: ${entity.title} at ${entity.lat}, ${entity.lon}');
 
-      _markers.add(marker);
+        final marker = Marker(
+          markerId: MarkerId(entity.id.toString()),
+          position: LatLng(entity.lat, entity.lon),
+          infoWindow: InfoWindow(
+            title: entity.title,
+            snippet: 'Tap for details',
+            onTap: () => _showEntityDetails(entity),
+          ),
+        );
+
+        _markers.add(marker);
+      } catch (e) {
+        print('Error creating marker for entity ${entity.id}: $e');
+      }
     }
+
+    print('Created ${_markers.length} markers');
   }
 
   void _showEntityDetails(Entity entity) {
@@ -131,16 +161,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: entity.getFullImageUrl(),
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => const Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                      errorWidget: (context, url, error) => const Center(
-                        child: Icon(Icons.error),
-                      ),
-                    ),
+                    child: _buildImageWidget(entity),
                   ),
                 ),
               ),
@@ -148,6 +169,36 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildImageWidget(Entity entity) {
+    // Check if it's a local file path (starts with '/')
+    if (entity.image != null && entity.image!.startsWith('/')) {
+      return Image.file(
+        File(entity.image!),
+        fit: BoxFit.cover,
+        errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
+          return const Center(
+            child: Icon(Icons.broken_image, size: 50),
+          );
+        },
+      );
+    } else {
+      // It's a remote URL
+      return CachedNetworkImage(
+        imageUrl: entity.getFullImageUrl(),
+        fit: BoxFit.cover,
+        placeholder: (context, url) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+        errorWidget: (BuildContext context, String url, Object error) {
+          print('Error loading image: $error, URL: ${entity.getFullImageUrl()}');
+          return const Center(
+            child: Icon(Icons.error, color: Colors.red, size: 50),
+          );
+        },
+      );
+    }
   }
 
   void _showFullImage(Entity entity) {
@@ -163,15 +214,27 @@ class _MapScreenState extends State<MapScreen> {
               boundaryMargin: const EdgeInsets.all(20),
               minScale: 0.5,
               maxScale: 4,
-              child: CachedNetworkImage(
+              child: entity.image != null && entity.image!.startsWith('/')
+                  ? Image.file(
+                File(entity.image!),
+                fit: BoxFit.contain,
+                errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.error),
+                  );
+                },
+              )
+                  : CachedNetworkImage(
                 imageUrl: entity.getFullImageUrl(),
                 fit: BoxFit.contain,
                 placeholder: (context, url) => const Center(
                   child: CircularProgressIndicator(),
                 ),
-                errorWidget: (context, url, error) => const Center(
-                  child: Icon(Icons.error),
-                ),
+                errorWidget: (BuildContext context, String url, Object error) {
+                  return const Center(
+                    child: Icon(Icons.error),
+                  );
+                },
               ),
             ),
           ),
@@ -208,20 +271,39 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       drawer: const AppDrawer(),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : GoogleMap(
-        onMapCreated: _onMapCreated,
-        initialCameraPosition: CameraPosition(
-          target: _defaultPosition,
-          zoom: 7,
-        ),
-        markers: _markers,
-        mapType: MapType.normal,
-        myLocationEnabled: true,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: true,
-        compassEnabled: true,
+      body: Stack(
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : GoogleMap(
+            onMapCreated: _onMapCreated,
+            initialCameraPosition: CameraPosition(
+              target: _defaultPosition,
+              zoom: 7,
+            ),
+            markers: _markers,
+            mapType: MapType.normal,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: true,
+            compassEnabled: true,
+          ),
+          if (_statusMessage.isNotEmpty)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                color: Colors.black.withOpacity(0.7),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                child: Text(
+                  _statusMessage,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

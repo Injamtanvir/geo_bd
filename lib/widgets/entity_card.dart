@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/entity.dart';
@@ -34,26 +35,15 @@ class EntityCard extends StatelessWidget {
               ),
             ),
           ),
-
           // Image (if available)
           if (entity.image != null && entity.image!.isNotEmpty)
             GestureDetector(
               onTap: () => _showFullImage(context),
               child: SizedBox(
                 height: 200,
-                child: CachedNetworkImage(
-                  imageUrl: entity.getFullImageUrl(),
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                  errorWidget: (context, url, error) => const Center(
-                    child: Icon(Icons.error),
-                  ),
-                ),
+                child: _buildImageWidget(),
               ),
             ),
-
           // Location info
           Padding(
             padding: const EdgeInsets.all(12.0),
@@ -62,7 +52,6 @@ class EntityCard extends StatelessWidget {
               style: const TextStyle(fontSize: 14),
             ),
           ),
-
           // Actions
           if (showActions)
             Padding(
@@ -81,7 +70,6 @@ class EntityCard extends StatelessWidget {
                       );
                     },
                   ),
-
                   // Delete button
                   if (onDelete != null)
                     TextButton.icon(
@@ -99,6 +87,47 @@ class EntityCard extends StatelessWidget {
     );
   }
 
+  // Helper method to build the appropriate image widget
+  Widget _buildImageWidget() {
+    // Check if it's a local file path (starts with '/')
+    if (entity.image != null && entity.image!.startsWith('/')) {
+      return Image.file(
+        File(entity.image!),
+        fit: BoxFit.cover,
+        errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
+          return const Center(
+            child: Icon(Icons.broken_image, size: 50),
+          );
+        },
+      );
+    } else {
+      // It's a remote URL
+      return CachedNetworkImage(
+        imageUrl: entity.getFullImageUrl(),
+        fit: BoxFit.cover,
+        placeholder: (context, url) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+        errorWidget: (BuildContext context, String url, Object error) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.error, color: Colors.red),
+                Text(
+                  'Failed to load image',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
   void _showFullImage(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -112,15 +141,27 @@ class EntityCard extends StatelessWidget {
               boundaryMargin: const EdgeInsets.all(20),
               minScale: 0.5,
               maxScale: 4,
-              child: CachedNetworkImage(
+              child: entity.image != null && entity.image!.startsWith('/')
+                  ? Image.file(
+                File(entity.image!),
+                fit: BoxFit.contain,
+                errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.error),
+                  );
+                },
+              )
+                  : CachedNetworkImage(
                 imageUrl: entity.getFullImageUrl(),
                 fit: BoxFit.contain,
                 placeholder: (context, url) => const Center(
                   child: CircularProgressIndicator(),
                 ),
-                errorWidget: (context, url, error) => const Center(
-                  child: Icon(Icons.error),
-                ),
+                errorWidget: (BuildContext context, String url, Object error) {
+                  return const Center(
+                    child: Icon(Icons.error),
+                  );
+                },
               ),
             ),
           ),

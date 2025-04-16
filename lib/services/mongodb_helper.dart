@@ -1,3 +1,4 @@
+// lib/services/mongodb_helper.dart
 import 'package:mongo_dart/mongo_dart.dart';
 import '../models/entity.dart';
 
@@ -6,7 +7,8 @@ class MongoDBHelper {
   factory MongoDBHelper() => _instance;
 
   // MongoDB connection URL
-  final String _connectionString = 'mongodb+srv://GeoBangladeshApp:GeoBangladeshApp123@geobangladeshapp.qty9xmu.mongodb.net/?retryWrites=true&w=majority&appName=GeoBangladeshApp';
+  final String _connectionString =
+      'mongodb+srv://GeoBangladeshApp:GeoBangladeshApp123@geobangladeshapp.qty9xmu.mongodb.net/?retryWrites=true&w=majority&appName=GeoBangladeshApp';
 
   Db? _db;
   DbCollection? _collection;
@@ -15,7 +17,7 @@ class MongoDBHelper {
 
   // Connect to MongoDB
   Future<void> connect() async {
-    if (_db != null) return;
+    if (_db != null && _db!.isConnected) return;
 
     try {
       _db = await Db.create(_connectionString);
@@ -25,6 +27,13 @@ class MongoDBHelper {
     } catch (e) {
       print('Error connecting to MongoDB: $e');
       rethrow;
+    }
+  }
+
+  // Check connection and reconnect if needed
+  Future<void> _ensureConnected() async {
+    if (_db == null || !_db!.isConnected) {
+      await connect();
     }
   }
 
@@ -41,7 +50,7 @@ class MongoDBHelper {
   // Save entity to MongoDB
   Future<ObjectId> saveEntity(Entity entity) async {
     try {
-      await connect();
+      await _ensureConnected();
 
       if (_collection == null) {
         throw Exception('MongoDB collection not initialized');
@@ -67,7 +76,7 @@ class MongoDBHelper {
   // Get all entities from MongoDB
   Future<List<Entity>> getEntities() async {
     try {
-      await connect();
+      await _ensureConnected();
 
       if (_collection == null) {
         throw Exception('MongoDB collection not initialized');
@@ -93,7 +102,7 @@ class MongoDBHelper {
   // Update entity in MongoDB
   Future<bool> updateEntity(Entity entity) async {
     try {
-      await connect();
+      await _ensureConnected();
 
       if (_collection == null) {
         throw Exception('MongoDB collection not initialized');
@@ -121,7 +130,7 @@ class MongoDBHelper {
   // Delete entity from MongoDB
   Future<bool> deleteEntity(int entityId) async {
     try {
-      await connect();
+      await _ensureConnected();
 
       if (_collection == null) {
         throw Exception('MongoDB collection not initialized');
@@ -138,7 +147,7 @@ class MongoDBHelper {
   // Sync local entities with MongoDB
   Future<void> syncEntities(List<Entity> entities) async {
     try {
-      await connect();
+      await _ensureConnected();
 
       if (_collection == null) {
         throw Exception('MongoDB collection not initialized');
