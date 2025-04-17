@@ -63,10 +63,45 @@ class _EntityListScreenState extends State<EntityListScreen> {
           print('API returned empty entity list');
 
           try {
-            _entities = await _mongoDBHelper.getEntities();
+            final mongoEntitiesData = await _mongoDBHelper.getEntities();
+            
+            // Convert Map objects to Entity objects
+            if (mongoEntitiesData.isNotEmpty) {
+              _entities = mongoEntitiesData.map((doc) {
+                try {
+                  return Entity(
+                    id: doc['original_id'] ?? doc['_id']?.toString() ?? '',
+                    title: doc['name'] ?? '',
+                    lat: doc['latitude'] is int 
+                        ? (doc['latitude'] as int).toDouble() 
+                        : (doc['latitude'] is double ? doc['latitude'] : 0.0),
+                    lon: doc['longitude'] is int 
+                        ? (doc['longitude'] as int).toDouble() 
+                        : (doc['longitude'] is double ? doc['longitude'] : 0.0),
+                    imageUrl: doc['image_data'],
+                    createdBy: doc['creator'],
+                    timestamp: DateTime.now().millisecondsSinceEpoch,
+                  );
+                } catch (e) {
+                  print('Error converting MongoDB entity: $e, doc: $doc');
+                  // Return a default entity in case of error
+                  return Entity(
+                    id: '',
+                    title: 'Error loading entity',
+                    lat: 0.0,
+                    lon: 0.0,
+                    timestamp: DateTime.now().millisecondsSinceEpoch,
+                  );
+                }
+              }).toList();
+            } else {
+              _entities = [];
+            }
+            
             print('Loaded ${_entities.length} entities from MongoDB');
           } catch (e) {
             print('MongoDB load failed: $e');
+            _entities = [];
           }
         }
       } catch (e) {
@@ -78,10 +113,45 @@ class _EntityListScreenState extends State<EntityListScreen> {
           print('Local database also returned empty entity list');
 
           try {
-            _entities = await _mongoDBHelper.getEntities();
+            final mongoEntitiesData = await _mongoDBHelper.getEntities();
+            
+            // Convert Map objects to Entity objects
+            if (mongoEntitiesData.isNotEmpty) {
+              _entities = mongoEntitiesData.map((doc) {
+                try {
+                  return Entity(
+                    id: doc['original_id'] ?? doc['_id']?.toString() ?? '',
+                    title: doc['name'] ?? '',
+                    lat: doc['latitude'] is int 
+                        ? (doc['latitude'] as int).toDouble() 
+                        : (doc['latitude'] is double ? doc['latitude'] : 0.0),
+                    lon: doc['longitude'] is int 
+                        ? (doc['longitude'] as int).toDouble() 
+                        : (doc['longitude'] is double ? doc['longitude'] : 0.0),
+                    imageUrl: doc['image_data'],
+                    createdBy: doc['creator'],
+                    timestamp: DateTime.now().millisecondsSinceEpoch,
+                  );
+                } catch (e) {
+                  print('Error converting MongoDB entity: $e, doc: $doc');
+                  // Return a default entity in case of error
+                  return Entity(
+                    id: '',
+                    title: 'Error loading entity',
+                    lat: 0.0,
+                    lon: 0.0,
+                    timestamp: DateTime.now().millisecondsSinceEpoch,
+                  );
+                }
+              }).toList();
+            } else {
+              _entities = [];
+            }
+            
             print('Loaded ${_entities.length} entities from MongoDB');
           } catch (e) {
             print('MongoDB load failed: $e');
+            _entities = [];
           }
         } else {
           print('Loaded ${_entities.length} entities from local database');

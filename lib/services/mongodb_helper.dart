@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:mongo_dart/mongo_dart.dart';
 import '../models/entity.dart';
+import '../utils/image_utils.dart';
 import 'auth_service.dart';
 
 class MongoDBHelper {
@@ -46,82 +48,153 @@ class MongoDBHelper {
     }
   }
 
-  Future<ObjectId> saveEntity(Entity entity) async {
+  Future<ObjectId?> saveEntity(Entity entity) async {
     try {
       await _ensureConnected();
 
-      if (_collection == null) {
-        throw Exception('MongoDB collection not initialized');
+      if (_collection == null || _db == null || !_db!.isConnected) {
+        print('MongoDB not connected, skipping save');
+        return null;
       }
 
       final username = await _authService.getUsername();
       if (username == null) {
-        throw Exception('User not logged in');
+        print('User not logged in, skipping MongoDB save');
+        return null;
       }
 
-      if (entity.id != null && entity.id! > 0) {
-        final existingEntity = await _collection!.findOne(
-          where.eq('original_id', entity.id).eq('created_by', username)
-        );
-        
-        if (existingEntity != null) {
-          await updateEntity(entity);
-          return ObjectId.fromHexString(existingEntity['_id'].toHexString());
+      print('MongoDB save - Entity ID: ${entity.id}, Title: ${entity.title}, Creator: $username');
+
+      try {
+        if (entity.id != null && entity.id.toString().isNotEmpty) {
+          final existingEntity = await _collection!.findOne(
+            where.eq('original_id', entity.id.toString()).eq('creator', username)
+          );
+          
+          if (existingEntity != null) {
+            print('Entity already exists in MongoDB, updating instead: ${entity.id}');
+            await updateEntity(entity);
+            return existingEntity['_id'] as ObjectId;
+          }
         }
+
+        // Process the image path and convert to base64 if needed
+        String? imageData;
+        try {
+          imageData = entity.imageUrl;
+          if (imageData != null) {
+            if (imageData.startsWith('/')) {
+              // For local files, convert to base64
+              final file = File(imageData);
+              if (file.existsSync()) {
+                try {
+                  imageData = await ImageUtils.fileToBase64(file);
+                  print('Converted local image to base64 (length: ${imageData.length})');
+                } catch (e) {
+                  print('Error converting image to base64: $e');
+                  imageData = null;
+                }
+              } else {
+                print('Local file does not exist: $imageData');
+                imageData = null;
+              }
+            } else if (imageData.startsWith('https://labs.anontech.info/cse489/t3/')) {
+              // If it's an API URL, download and convert
+              try {
+                print('Attempting to download and convert image from API: $imageData');
+                final downloadedImage = await ImageUtils.downloadAndConvertToBase64(imageData);
+                if (downloadedImage != null) {
+                  imageData = downloadedImage;
+                  print('Successfully converted API image to base64 (length: ${imageData.length})');
+                } else {
+                  print('Failed to download and convert API image');
+                }
+              } catch (e) {
+                print('Error downloading image from API URL: $e');
+              }
+            } else if (!imageData.startsWith('http') && !imageData.startsWith('data:image') && imageData.length < 100) {
+              // If it's just a filename, try to use the API URL to download and convert
+              try {
+                final apiBaseUrl = 'https://labs.anontech.info/cse489/t3/images';
+                final url = '$apiBaseUrl/$imageData';
+                print('Attempting to download and convert image from: $url');
+                
+                imageData = await ImageUtils.downloadAndConvertToBase64(url);
+                if (imageData == null) {
+                  print('Failed to download and convert image');
+                } else {
+                  print('Successfully converted API image to base64 (length: ${imageData.length})');
+                }
+              } catch (e) {
+                print('Error downloading image from API: $e');
+                imageData = null;
+              }
+            }
+          }
+        } catch (imageError) {
+          print('Error processing image: $imageError');
+          imageData = null;
+        }
+
+        // Add this entity on mongoDb
+        final Map<String, dynamic> data = {
+          'name': entity.title,
+          'latitude': entity.lat,
+          'longitude': entity.lon,
+          'image_data': imageData, // Store the base64 data or URL
+          'original_id': entity.id.toString(),
+          'created_at': DateTime.now(),
+          'creator': username,
+          'created_by': username, // Ensure both fields are consistent
+        };
+
+        print('MongoDB save - Final document to insert with creator: $username');
+
+        final result = await _collection!.insert(data);
+        print('Entity saved to MongoDB by user: $username with ID: ${entity.id}, Result: $result');
+        return result as ObjectId;
+      } catch (dbError) {
+        print('MongoDB database operation error: $dbError');
+        return null;
       }
-
-      // Add this entity on mongoDb
-      final Map<String, dynamic> data = {
-        'title': entity.title,
-        'lat': entity.lat,
-        'lon': entity.lon,
-        'image': entity.image,
-        'original_id': entity.id,
-        'created_at': DateTime.now(),
-        'created_by': username,
-      };
-
-      final result = await _collection!.insert(data);
-      print('Entity saved to MongoDB by user: $username with ID: ${entity.id}');
-      return result as ObjectId;
     } catch (e) {
       print('Error saving entity to MongoDB: $e');
-      rethrow;
+      return null; // Return null instead of rethrowing to prevent app crashes
     }
   }
 
-  Future<List<Entity>> getEntities() async {
+  Future<List<Map<String, dynamic>>> getEntities() async {
     try {
       await _ensureConnected();
-
+      
+      // Get the currently logged in username
+      final String? username = await AuthService().getUsername();
+      print('Getting entities for user: $username');
+      
+      if (username == null || username.isEmpty) {
+        print('No user logged in, returning empty list');
+        return [];
+      }
+      
       if (_collection == null) {
-        throw Exception('MongoDB collection not initialized');
-      }
-
-      final username = await _authService.getUsername();
-
-      if (username == null) {
-        throw Exception('User not logged in');
+        print('MongoDB collection not initialized, returning empty list');
+        return [];
       }
       
-      final query = where.eq('created_by', username);
-      final List<Map<String, dynamic>> docs = await _collection!.find(query).toList();
+      // Filter entities by creator field
+      final cursor = _collection!.find(where.eq('creator', username));
+      final List<Map<String, dynamic>> entities = await cursor.toList();
       
-      print('Fetched ${docs.length} entities from MongoDB for user: $username');
-
-      return docs.map((doc) {
-        return Entity(
-          id: doc['original_id'] ?? int.parse(doc['_id'].toHexString().substring(0, 8), radix: 16),
-          title: doc['title'],
-          lat: doc['lat'],
-          lon: doc['lon'],
-          image: doc['image'],
-          createdBy: doc['created_by'],
-        );
-      }).toList();
+      print('Found ${entities.length} entities for user $username in MongoDB');
+      
+      for (var entity in entities) {
+        print('MongoDB Entity: ${entity['name']}, Creator: ${entity['creator']}, ID: ${entity['_id']}');
+      }
+      
+      return entities;
     } catch (e) {
       print('Error fetching entities from MongoDB: $e');
-      rethrow;
+      return [];
     }
   }
 
@@ -139,22 +212,75 @@ class MongoDBHelper {
         throw Exception('User not logged in');
       }
 
+      print('MongoDB update - Entity ID: ${entity.id}, Title: ${entity.title}');
+      
       final query = where
           .eq('original_id', entity.id)
-          .eq('created_by', username); // Only update user's own entities
+          .eq('creator', username); // Only update user's own entities
+
+      // Check if entity exists
+      final existingEntity = await _collection!.findOne(query);
+      if (existingEntity == null) {
+        print('Entity not found in MongoDB: ${entity.id}');
+        // If entity doesn't exist, save it instead
+        await saveEntity(entity);
+        return true;
+      }
+
+      // Process the image path and convert to base64 if needed
+      String? imageData = entity.imageUrl;
+      if (imageData != null) {
+        if (imageData.startsWith('/')) {
+          // For local files, convert to base64
+          final file = File(imageData);
+          if (file.existsSync()) {
+            imageData = await ImageUtils.fileToBase64(file);
+            print('Converted local image to base64 for update (length: ${imageData.length})');
+          } else {
+            print('Local file does not exist for update: $imageData');
+            imageData = null;
+          }
+        } else if (!imageData.startsWith('http') && imageData.length < 100) {
+          // If it's just a filename, try to use the API URL to download and convert
+          try {
+            final apiBaseUrl = 'https://labs.anontech.info/cse489/t3/images';
+            final url = '$apiBaseUrl/$imageData';
+            print('Attempting to download and convert image from: $url');
+            
+            imageData = await ImageUtils.downloadAndConvertToBase64(url);
+            if (imageData == null) {
+              print('Failed to download and convert image for update');
+            } else {
+              print('Successfully converted API image to base64 for update (length: ${imageData.length})');
+            }
+          } catch (e) {
+            print('Error downloading image from API for update: $e');
+            imageData = null;
+          }
+        }
+      }
 
       final update = {
         '\$set': {
-          'title': entity.title,
-          'lat': entity.lat,
-          'lon': entity.lon,
-          if (entity.image != null) 'image': entity.image,
+          'name': entity.title,
+          'latitude': entity.lat,
+          'longitude': entity.lon,
+          if (imageData != null) 'image_data': imageData,
           'updated_at': DateTime.now(),
         }
       };
 
+      print('MongoDB update - Updating entity for user: $username');
+
       final result = await _collection!.update(query, update);
-      print('Entity updated in MongoDB by user: $username');
+      print('Entity updated in MongoDB by user: $username, Result: $result');
+      
+      // Get the updated entity to verify changes
+      final updatedEntity = await _collection!.findOne(query);
+      if (updatedEntity != null) {
+        print('Updated entity in MongoDB - Name: ${updatedEntity['name']}, Creator: ${updatedEntity['creator']}');
+      }
+      
       return result['nModified'] > 0;
     } catch (e) {
       print('Error updating entity in MongoDB: $e');
@@ -162,7 +288,7 @@ class MongoDBHelper {
     }
   }
 
-  Future<bool> deleteEntity(int entityId) async {
+  Future<bool> deleteEntity(String entityId) async {
     try {
       await _ensureConnected();
 
@@ -177,10 +303,10 @@ class MongoDBHelper {
 
       final query = where
           .eq('original_id', entityId)
-          .eq('created_by', username);
+          .eq('creator', username);
 
       final result = await _collection!.remove(query);
-      print('Entity deleted from MongoDB by user: $username');
+      print('Entity deleted from MongoDB by user: $username, ID: $entityId');
       return result['n'] > 0;
     } catch (e) {
       print('Error deleting entity from MongoDB: $e');
@@ -203,7 +329,7 @@ class MongoDBHelper {
 
       for (var entity in entities) {
         final existing = await _collection!.findOne(
-            where.eq('original_id', entity.id).eq('created_by', username));
+            where.eq('original_id', entity.id).eq('creator', username));
 
         if (existing == null){
           await saveEntity(entity);

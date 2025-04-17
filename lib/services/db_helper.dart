@@ -94,8 +94,9 @@ class DatabaseHelper {
         title: maps[i]['title'],
         lat: maps[i]['lat'],
         lon: maps[i]['lon'],
-        image: maps[i]['image'],
+        imageUrl: maps[i]['image'],
         createdBy: maps[i]['created_by'],
+        timestamp: maps[i]['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
       );
     });
   }
@@ -127,8 +128,9 @@ class DatabaseHelper {
         title: maps[i]['title'],
         lat: maps[i]['lat'],
         lon: maps[i]['lon'],
-        image: maps[i]['image'],
+        imageUrl: maps[i]['image'],
         createdBy: maps[i]['created_by'],
+        timestamp: maps[i]['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
       );
     });
   }

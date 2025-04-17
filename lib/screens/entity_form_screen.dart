@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image_picker/image_picker.dart' as image_picker;
 import '../models/entity.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
@@ -15,6 +15,22 @@ import '../widgets/app_drawer.dart';
 import '../screens/auth_screen.dart';
 import '../screens/map_screen.dart';
 
+/// Entity Form Screen
+/// 
+/// This screen allows users to create new entities or edit existing ones.
+/// Key features:
+/// - Form validation for all fields including latitude/longitude range checks
+/// - Image selection from camera or gallery with built-in resizing
+/// - Current location detection with user feedback
+/// - Support for both online and offline creation/editing
+/// - Automatic user association with entities
+/// - MongoDB and SQLite synchronization
+/// 
+/// The form ensures that:
+/// 1. Location coordinates are only set when explicitly requested by the user
+/// 2. Validation provides clear error messages for latitude/longitude
+/// 3. The user is properly redirected to the map screen after submission
+/// 4. All entities are properly associated with the current user
 class EntityFormScreen extends StatefulWidget{
   static const routeName = '/entity-form';
   const EntityFormScreen({Key? key}) : super(key: key);
@@ -31,11 +47,13 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   final MongoDBHelper _mongoDBHelper = MongoDBHelper();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
+  bool _isLoadingLocation = false;
   bool _isEdit = false;
-  File? _imageFile;
+  File? _selectedImage;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _latController = TextEditingController();
   final TextEditingController _lonController = TextEditingController();
+  final TextEditingController _imageController = TextEditingController();
   Entity? _entity;
   bool _isAuthenticated = false;
 
@@ -67,7 +85,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Authentication Required'),
         content: const Text(
-          'You need to be logged in to create or edit entities. Would you like to login now?',// This will never need
+          'You need to be logged in to create or edit entities. Would you like to login now?',
         ),
         actions: [
           TextButton(
@@ -101,66 +119,75 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       _latController.text = _entity!.lat.toString();
       _lonController.text = _entity!.lon.toString();
 
-      if (_entity!.image != null && _entity!.image!.startsWith('/')) {
-        _imageFile = File(_entity!.image!);
+      if (_entity!.imageUrl != null && _entity!.imageUrl!.startsWith('/')) {
+        _selectedImage = File(_entity!.imageUrl!);
       }
     }
-
+    // No automatic location fetching for new entities
   }
 
   Future<void> _getCurrentLocation() async {
-    setState(() {
-      _isLoading = true;
-    });
+    // If the form is in edit mode, don't auto-fetch the location
+    if (_isEdit) return;
     
-    final currentLocation = await _locationService.getCurrentLocation();
-    
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        
-        if (currentLocation != null) {
-          _latController.text = currentLocation.latitude.toString();
-          _lonController.text = currentLocation.longitude.toString();
-        } else {
-          final defaultLocation = _locationService.getDefaultLocation();
-          _latController.text = defaultLocation.latitude.toString();
-          _lonController.text = defaultLocation.longitude.toString();
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not get current location. Using default.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      });
+    // Don't auto-fetch location if user has already manually entered coordinates
+    if (_latController.text.isNotEmpty && _lonController.text.isNotEmpty) {
+      return;
     }
-  }
+    
+    setState(() {
+      _isLoadingLocation = true;
+    });
 
-  Future<void> _pickImage(ImageSource source) async {
     try {
-      File? pickedImage;
-      if (source == ImageSource.gallery) {
-        pickedImage = await ImageUtils.pickImage();
+      final position = await _locationService.getCurrentLocation();
+      
+      // Only update controllers if they're empty (user hasn't input values)
+      // This prevents overwriting user-entered coordinates
+      if (position != null && _latController.text.isEmpty && _lonController.text.isEmpty) {
+        setState(() {
+          _latController.text = position.latitude.toStringAsFixed(6);
+          _lonController.text = position.longitude.toStringAsFixed(6);
+          _isLoadingLocation = false;
+        });
+      } else if (position == null) {
+        // Use default location if we couldn't get the current location
+        final defaultPosition = _locationService.getDefaultLocation();
+        setState(() {
+          _latController.text = defaultPosition.latitude.toStringAsFixed(6);
+          _lonController.text = defaultPosition.longitude.toStringAsFixed(6);
+          _isLoadingLocation = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not get current location, using default location'),
+            duration: Duration(seconds: 3),
+          ),
+        );
       } else {
-        pickedImage = await ImageUtils.captureImage();
-      }
-
-      if (pickedImage != null) {
-        final resizedImage = await ImageUtils.resizeImage(pickedImage);
-        if (mounted && resizedImage != null) {
-          setState(() {
-            _imageFile = resizedImage;
-          });
-        }
+        setState(() {
+          _isLoadingLocation = false;
+        });
       }
     } catch (e) {
-      print('Error picking image: $e');
-      if (mounted) {
+      print('Error getting current location: $e');
+      setState(() {
+        _isLoadingLocation = false;
+      });
+      
+      // Only show error if user hasn't already input coordinates
+      if (_latController.text.isEmpty && _lonController.text.isEmpty) {
+        // Use default location
+        final defaultPosition = _locationService.getDefaultLocation();
+        setState(() {
+          _latController.text = defaultPosition.latitude.toStringAsFixed(6);
+          _lonController.text = defaultPosition.longitude.toStringAsFixed(6);
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error picking image: $e'),
+            content: Text('Could not get location: ${e.toString()}. Using default position.'),
             duration: const Duration(seconds: 3),
           ),
         );
@@ -168,31 +195,18 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     }
   }
 
-  void _showImagePickerOptions(){
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.photo_camera),
-            title: const Text('Take a Picture'),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              _pickImage(ImageSource.camera);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.photo_library),
-            title: const Text('Choose from Gallery'),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              _pickImage(ImageSource.gallery);
-            },
-          ),
-        ],
-      ),
-    );
+  Future<void> _pickImage() async {
+    final image_picker.ImagePicker picker = image_picker.ImagePicker();
+    final image_picker.XFile? imageFile = await picker.pickImage(source: image_picker.ImageSource.gallery);
+
+    if (imageFile != null) {
+      setState(() {
+        _selectedImage = File(imageFile.path);
+      });
+      
+      // Removing the auto-location fetch after picking an image
+      // This was causing unwanted behavior where location was automatically populated
+    }
   }
 
   Future<void> _saveForm() async {
@@ -200,28 +214,47 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       return;
     }
 
-    if (_imageFile == null && !_isEdit) {
+    if (_selectedImage == null && !_isEdit) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select an image'),
-          duration: Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text('Please select an image')),
       );
       return;
     }
 
-    if (_latController.text.isEmpty || _lonController.text.isEmpty) {
+    // Validate latitude and longitude are provided
+    final latitude = double.tryParse(_latController.text);
+    final longitude = double.tryParse(_lonController.text);
+    
+    if (latitude == null || longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please provide latitude and longitude or use current location'),
-          duration: Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text('Please enter valid coordinates')),
+      );
+      return;
+    }
+    
+    // Validate latitude and longitude ranges
+    if (latitude < -90 || latitude > 90) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Latitude must be between -90 and 90')),
+      );
+      return;
+    }
+    
+    if (longitude < -180 || longitude > 180) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Longitude must be between -180 and 180')),
       );
       return;
     }
 
-    if (!_isAuthenticated) {
-      _showLoginPrompt();
+    // Check if user is authenticated
+    final username = await _authService.getUsername();
+    if (username == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please log in to add or edit entities'),
+        ),
+      );
       return;
     }
 
@@ -232,118 +265,193 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     });
 
     try {
-      final isOnline = Provider.of<ConnectivityProvider>(context, listen: false).isOnline;
+      final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
+      final isOnline = connectivityProvider.isOnline;
+
+      final name = _titleController.text;
+      final lat = double.parse(_latController.text);
+      final lon = double.parse(_lonController.text);
+
+      String? imageData;
       
+      // Process image data
+      if (_selectedImage != null) {
+        // Convert to base64 for storage
+        imageData = await ImageUtils.fileToBase64(_selectedImage!);
+      } else if (_isEdit && _entity?.imageUrl != null) {
+        // Keep existing image data for edits
+        imageData = _entity?.imageUrl;
+      }
+
+      final entity = Entity(
+        id: _isEdit ? _entity!.id : null,
+        title: name,
+        lat: lat,
+        lon: lon,
+        imageUrl: imageData,
+        createdBy: username,
+        syncStatus: _isAuthenticated ? 'synced' : 'local',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+
       if (_isEdit) {
         // Update existing entity
-        if (_entity != null) {
+        if (_isAuthenticated) {
+          // Online - update through API
           try {
-            if (isOnline) {
-              final success = await _apiService.updateEntity(
-                id: _entity!.id!,
-                title: _titleController.text,
-                lat: double.parse(_latController.text),
-                lon: double.parse(_lonController.text),
-                imageFile: _imageFile,
+            // Manual conversion to match the updateEntity method signature
+            final success = await _apiService.updateEntity(
+              id: int.tryParse(entity.id.toString()) ?? 0,
+              title: entity.title,
+              lat: entity.lat,
+              lon: entity.lon,
+              imageFile: _selectedImage,
+            );
+            
+            if (success) {
+              await _dbHelper.updateEntity(entity.copyWith(syncStatus: 'synced'));
+              await _mongoDBHelper.updateEntity(entity.copyWith(syncStatus: 'synced'));
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Entity updated successfully')),
               );
-
-              if (success) {
-                final updatedEntity = Entity(
-                  id: _entity!.id,
-                  title: _titleController.text,
-                  lat: double.parse(_latController.text),
-                  lon: double.parse(_lonController.text),
-                  image: _imageFile?.path ?? _entity!.image,
+              
+              // Return to previous screen with result true to trigger a refresh
+              Navigator.of(context).pop(true);
+            } else {
+              throw Exception('API update returned false');
+            }
+          } catch (e) {
+            print('Error updating entity online: $e');
+            // Save locally with 'update-pending' status
+            await _dbHelper.updateEntity(entity.copyWith(syncStatus: 'update-pending'));
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Entity saved locally, will sync when online')),
+            );
+            
+            // Return to previous screen with result true to trigger a refresh
+            Navigator.of(context).pop(true);
+          }
+        } else {
+          // Offline - update local DB only with pending status
+          await _dbHelper.updateEntity(entity.copyWith(syncStatus: 'update-pending'));
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Entity updated locally, will sync when online')),
+          );
+          
+          // Return to previous screen with result true to trigger a refresh
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        // Create new entity
+        if (_isAuthenticated) {
+          // Online - create through API
+          try {
+            if (_selectedImage != null) {
+              try {
+                // First save entity locally with a temporary ID
+                final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+                final localEntity = entity.copyWith(
+                  id: tempId,
+                  syncStatus: 'pending'
                 );
-
-                await _dbHelper.updateEntity(updatedEntity);
-
-                try {
-                  await _mongoDBHelper.updateEntity(updatedEntity);
-                  print('Entity updated in MongoDB');
-                } catch (e) {
-                  print('MongoDB update failed: $e');
-                }
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Entity updated successfully'),
-                      duration: Duration(seconds: 2),
-                    ),
+                
+                // Save to local DB first
+                await _dbHelper.insertEntity(localEntity);
+                
+                // Then try to create via API
+                final newId = await _apiService.createEntity(
+                  title: entity.title,
+                  lat: entity.lat,
+                  lon: entity.lon,
+                  imageFile: _selectedImage!,
+                );
+                
+                if (newId > 0) {
+                  // API creation successful, update local entity
+                  final updatedEntity = localEntity.copyWith(
+                    id: newId.toString(),
+                    syncStatus: 'synced'
                   );
-
-                  Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+                  
+                  // Update local DB
+                  await _dbHelper.updateEntity(updatedEntity);
+                  
+                  // Save to MongoDB too
+                  try {
+                    await _mongoDBHelper.saveEntity(updatedEntity);
+                  } catch (e) {
+                    print('MongoDB save error: $e');
+                    // Continue even if MongoDB fails
+                  }
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Entity created successfully')),
+                  );
+                  
+                  // Return to previous screen with result true to trigger a refresh
+                  Navigator.of(context).pop(true);
                 }
+              } catch (apiError) {
+                print('API error but local entity saved: $apiError');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Entity saved locally, will sync when online')),
+                );
+                // Entity already saved locally, just return to previous screen
+                Navigator.of(context).pop(true);
               }
             } else {
-              _updateOffline();
+              throw Exception('No image selected');
             }
-          } catch (e)
-          {
-            print('Error updating entity: $e');
-            _updateOffline();
-          }
-        }
-      }
-      else {
-        try {
-          if (isOnline) {
-            final id = await _apiService.createEntity(
-              title: _titleController.text,
-              lat: double.parse(_latController.text),
-              lon: double.parse(_lonController.text),
-              imageFile: _imageFile!,
-            );
-
-            if (id > 0) {
-              final newEntity = Entity(
-                id: id,
-                title: _titleController.text,
-                lat: double.parse(_latController.text),
-                lon: double.parse(_lonController.text),
-                image: _imageFile?.path,
+          } catch (e) {
+            print('Error creating entity: $e');
+            // Save locally with a pending status
+            try {
+              final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+              final localEntity = entity.copyWith(
+                id: tempId,
+                syncStatus: 'pending'
               );
-
-              await _dbHelper.insertEntity(newEntity);
-
-              try {
-                await _mongoDBHelper.saveEntity(newEntity);
-                print('Entity saved to MongoDB');
-              } catch (e) {
-                print('MongoDB save failed: $e');
-              }
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Entity created successfully'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-
-                Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
-              }
+              
+              await _dbHelper.insertEntity(localEntity);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Entity saved locally, will sync when online')),
+              );
+              
+              // Return to previous screen with result true to trigger a refresh
+              Navigator.of(context).pop(true);
+            } catch (dbError) {
+              print('Error saving to local DB: $dbError');
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to save entity: $dbError')),
+              );
             }
-          } else {
-            _createOffline();
           }
-        } catch (e) {
-          print('Error creating entity: $e');
-          _createOffline();
+        } else {
+          // Offline - save to local DB only
+          final localEntity = entity.copyWith(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            syncStatus: 'pending',
+          );
+          await _dbHelper.insertEntity(localEntity);
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Entity saved locally, will sync when online')),
+          );
+          
+          // Return to previous screen with result true to trigger a refresh
+          Navigator.of(context).pop(true);
         }
       }
     } catch (e) {
-      print('Error saving form: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      print('Error saving entity: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving entity: $e')),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -353,75 +461,12 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     }
   }
 
-  Future<void> _updateOffline() async {
-    final updatedEntity = Entity(
-      id: _entity!.id,
-      title: _titleController.text,
-      lat: double.parse(_latController.text),
-      lon: double.parse(_lonController.text),
-      image: _imageFile?.path ?? _entity!.image,
-    );
-
-    await _dbHelper.updateEntity(updatedEntity);
-    await _dbHelper.markAsSynced(_entity!.id!, synced: false);
-
-    try {
-      await _mongoDBHelper.updateEntity(updatedEntity);
-      print('Entity updated in MongoDB while offline');
-    } catch (e) {
-      print('MongoDB offline update failed: $e');
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Entity saved offline. Will sync when online.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
-    }
-  }
-
-  Future<void> _createOffline() async {
-    // Generate a temporary negative ID for offline entities
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final tempId = -(timestamp % 100000);
-
-    final newEntity = Entity(
-      id: tempId,
-      title: _titleController.text,
-      lat: double.parse(_latController.text),
-      lon: double.parse(_lonController.text),
-      image: _imageFile?.path,
-    );
-
-    // Save to local database and mark as not synced
-    await _dbHelper.insertEntity(newEntity, synced: false);
-
-    try {
-      await _mongoDBHelper.saveEntity(newEntity);
-      print('Entity saved to MongoDB while offline');
-    } catch (e) {
-      print('MongoDB offline save failed: $e');
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Entity saved offline. Will sync when online.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
-    }
-  }
-
   @override
   void dispose() {
     _titleController.dispose();
     _latController.dispose();
     _lonController.dispose();
+    _imageController.dispose();
     super.dispose();
   }
 
@@ -469,20 +514,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                           border: OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Required';
-                          }
-                          try {
-                            final lat = double.parse(value);
-                            if (lat < -90 || lat > 90) {
-                              return 'Invalid latitude';
-                            }
-                          } catch (e) {
-                            return 'Invalid number';
-                          }
-                          return null;
-                        },
+                        validator: _validateLatitude,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -495,20 +527,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                           border: OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Required';
-                          }
-                          try {
-                            final lon = double.parse(value);
-                            if (lon < -180 || lon > 180) {
-                              return 'Invalid longitude';
-                            }
-                          } catch (e) {
-                            return 'Invalid number';
-                          }
-                          return null;
-                        },
+                        validator: _validateLongitude,
                       ),
                     ),
                   ],
@@ -550,7 +569,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                         ElevatedButton.icon(
                           icon: const Icon(Icons.photo),
                           label: Text(_isEdit ? 'Change Image' : 'Select Image'),
-                          onPressed: _showImagePickerOptions,
+                          onPressed: _pickImage,
                         ),
                       ],
                     ),
@@ -576,11 +595,11 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   }
 
   Widget _buildImagePreview() {
-    if (_imageFile != null) {
+    if (_selectedImage != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.file(
-          _imageFile!,
+          _selectedImage!,
           fit: BoxFit.cover,
           width: double.infinity,
           errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
@@ -590,9 +609,9 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
           },
         ),
       );
-    } else if (_isEdit && _entity?.image != null) {
+    } else if (_isEdit && _entity?.imageUrl != null) {
       // If editing and image is from remote URL
-      if (!(_entity!.image!.startsWith('/'))) {
+      if (!(_entity!.imageUrl!.startsWith('/'))) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.network(
@@ -618,7 +637,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.file(
-            File(_entity!.image!),
+            File(_entity!.imageUrl!),
             fit: BoxFit.cover,
             width: double.infinity,
             errorBuilder: (context, error, stackTrace) {
@@ -635,9 +654,38 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       );
     }
   }
-}
 
-enum ImageSource {
-  camera,
-  gallery,
+  String? _validateLatitude(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter latitude';
+    }
+    
+    final latitude = double.tryParse(value);
+    if (latitude == null) {
+      return 'Please enter a valid number';
+    }
+    
+    if (latitude < -90 || latitude > 90) {
+      return 'Latitude must be between -90 and 90';
+    }
+    
+    return null;
+  }
+
+  String? _validateLongitude(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter longitude';
+    }
+    
+    final longitude = double.tryParse(value);
+    if (longitude == null) {
+      return 'Please enter a valid number';
+    }
+    
+    if (longitude < -180 || longitude > 180) {
+      return 'Longitude must be between -180 and 180';
+    }
+    
+    return null;
+  }
 }

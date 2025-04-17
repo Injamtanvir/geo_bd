@@ -4,6 +4,9 @@ import '../screens/map_screen.dart';
 import '../screens/entity_form_screen.dart';
 import '../screens/entity_list_screen.dart';
 import '../screens/auth_screen.dart';
+import '../screens/all_user_map_screen.dart';
+import '../screens/all_entity_list_screen.dart';
+import '../screens/user_entity_list_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/connectivity_provider.dart';
 
@@ -84,7 +87,7 @@ class AppDrawer extends StatelessWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.map),
-                  title: const Text('Map'),
+                  title: const Text('My Map'),
                   onTap: () {
                     Navigator.pushReplacementNamed(context, MapScreen.routeName);
                   },
@@ -98,9 +101,23 @@ class AppDrawer extends StatelessWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.list),
-                  title: const Text('Entity List'),
+                  title: const Text('My Entities'),
                   onTap: () {
-                    Navigator.pushReplacementNamed(context, EntityListScreen.routeName);
+                    Navigator.pushReplacementNamed(context, UserEntityListScreen.routeName);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.public),
+                  title: const Text('All User Map'),
+                  onTap: () {
+                    Navigator.pushReplacementNamed(context, AllUserMapScreen.routeName);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.view_list),
+                  title: const Text('All Entities'),
+                  onTap: () {
+                    Navigator.pushReplacementNamed(context, AllEntityListScreen.routeName);
                   },
                 ),
               ],

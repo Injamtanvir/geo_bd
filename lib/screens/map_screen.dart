@@ -14,6 +14,9 @@ import '../services/event_bus.dart';
 import '../utils/connectivity_provider.dart';
 import '../widgets/app_drawer.dart';
 import '../services/auth_service.dart';
+import '../services/connectivity_service.dart';
+import '../screens/entity_form_screen.dart';
+import '../screens/entity_details_screen.dart';
 
 class MapScreen extends StatefulWidget {
   static const routeName = '/map';
@@ -39,7 +42,7 @@ class _MapScreenState extends State<MapScreen> {
   bool _previousOnlineStatus = false;
   late StreamSubscription<EntityEvent> _entitySubscription;
   String? _currentUsername;
-
+  String? _loadError;
 
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
 
@@ -91,7 +94,9 @@ class _MapScreenState extends State<MapScreen> {
     final username = await _authService.getUsername();
     
     if (_currentUsername != username) {
-      _currentUsername = username;
+      setState(() {
+        _currentUsername = username;
+      });
       
       if (username == null) {
         setState(() {
@@ -107,85 +112,137 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadEntities() async {
-    setState(() {
-      _isLoading = true;
-      _markers.clear();
-      _statusMessage = '';
-    });
-
     try {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+
+      _entities.clear();
+      _markers.clear();
+
+      // First check local database for offline entities
+      final localEntities = await _dbHelper.getEntities();
+      if (localEntities.isNotEmpty) {
+        print('Loaded ${localEntities.length} entities from local database');
+        _entities.addAll(localEntities);
+      }
+
+      // Try to get entities from MongoDB if online
       final isOnline = Provider.of<ConnectivityProvider>(context, listen: false).isOnline;
-      
       if (isOnline) {
-        print('Online mode: Attempting to load entities from API...');
         try {
-          final apiEntities = await _apiService.getEntities();
-
-          if (apiEntities.isNotEmpty) {
-            print('Loaded ${apiEntities.length} entities from API successfully');
-            _entities = apiEntities;
-
-            //offline access
-            for (var entity in _entities) {
-              await _dbHelper.insertEntity(entity);
+          final username = await _authService.getUsername();
+          if (username != null) {
+            final mongoEntities = await _mongoDBHelper.getEntities();
+            if (mongoEntities.isNotEmpty) {
+              print('Loaded ${mongoEntities.length} entities from MongoDB');
+              
+              final List<Entity> parsedMongoEntities = mongoEntities.map((doc) {
+                try {
+                  final id = doc['original_id'] ?? doc['_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+                  final name = doc['name'] ?? 'Unknown';
+                  
+                  double? latitude;
+                  double? longitude;
+                  
+                  if (doc['latitude'] == null) {
+                    print('Missing latitude in MongoDB entity');
+                    return null;
+                  }
+                  
+                  if (doc['longitude'] == null) {
+                    print('Missing longitude in MongoDB entity');
+                    return null;
+                  }
+                  
+                  if (doc['latitude'] is int) {
+                    latitude = (doc['latitude'] as int).toDouble();
+                  } else if (doc['latitude'] is double) {
+                    latitude = doc['latitude'];
+                  } else if (doc['latitude'] is String) {
+                    latitude = double.tryParse(doc['latitude']) ?? 0.0;
+                  }
+                  
+                  if (doc['longitude'] is int) {
+                    longitude = (doc['longitude'] as int).toDouble();
+                  } else if (doc['longitude'] is double) {
+                    longitude = doc['longitude'];
+                  } else if (doc['longitude'] is String) {
+                    longitude = double.tryParse(doc['longitude']) ?? 0.0;
+                  }
+                  
+                  if (latitude == null || longitude == null || 
+                      latitude < -90 || latitude > 90 || 
+                      longitude < -180 || longitude > 180) {
+                    print('Invalid MongoDB latitude/longitude: ${doc['latitude']}, ${doc['longitude']}');
+                    return null;
+                  }
+                  
+                  String? imageUrl = doc['image_data'];
+                  // If image_data is null, try alternate fields
+                  if (imageUrl == null) {
+                    imageUrl = doc['image_url'] ?? doc['image'] ?? null;
+                  }
+                  
+                  // Safely access creator field with fallbacks
+                  final createdBy = doc['creator'] ?? doc['created_by'] ?? '';
+                  
+                  // Skip entities without creator or not matching current user
+                  if (createdBy.isEmpty || (username != null && createdBy != username)) {
+                    print('Skipping entity not created by current user: $createdBy vs $username');
+                    return null;
+                  }
+                  
+                  return Entity(
+                    id: id,
+                    title: name,
+                    lat: latitude,
+                    lon: longitude,
+                    imageUrl: imageUrl,
+                    createdBy: createdBy,
+                    timestamp: doc['created_at'] is DateTime 
+                      ? doc['created_at'].millisecondsSinceEpoch 
+                      : DateTime.now().millisecondsSinceEpoch,
+                  );
+                } catch (e) {
+                  print('Error converting MongoDB entity: $e');
+                  return null;
+                }
+              })
+              .where((entity) => entity != null)
+              .cast<Entity>()
+              .toList();
+              
+              // Add MongoDB entities to our list, avoiding duplicates with local DB
+              for (final entity in parsedMongoEntities) {
+                if (!_entities.any((e) => e.id.toString() == entity.id.toString())) {
+                  _entities.add(entity);
+                }
+              }
             }
-            
-            // Sync with MongoDB
-            try {
-              await _mongoDBHelper.syncEntities(_entities);
-              print('Entities synced with MongoDB');
-            } catch (e) {
-              print('MongoDB sync failed: $e');
-            }
-
-            setState(() {
-              _isOfflineMode = false;
-            });
           } else {
-            print('API returned empty entity list');
-            throw Exception('No entities found on server');
+            print('No username found, skipping MongoDB entities fetch');
           }
         } catch (e) {
-          print('API error, falling back to local: $e');
-          await _loadLocalEntities();
+          print('Error loading MongoDB entities: $e');
+          // Continue with just local entities
         }
-      } else {
-        print('Offline mode detected');
-        await _loadLocalEntities();
       }
-    } catch (e) {
-      print('Error loading entities: $e');
-      _entities = [];
+
+      // Create markers for each entity
+      _createMarkers();
+
       setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error in _loadEntities: $e');
+      setState(() {
+        _isLoading = false;
+        _loadError = 'Failed to load entities: $e';
       });
     }
-
-    _createMarkers();
-
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _loadLocalEntities() async {
-    _entities = await _dbHelper.getEntities();
-      
-    if (_entities.isEmpty) {
-      print('Local SQLite database is empty, trying MongoDB...');
-
-      try {
-        _entities = await _mongoDBHelper.getEntities();
-        print('Loaded ${_entities.length} entities from MongoDB');
-      } catch (e) {
-        print('MongoDB load failed: $e');
-      }
-    } else {
-      print('Loaded ${_entities.length} entities from local SQLite database');
-    }
-
-    setState(() {
-      _isOfflineMode = true;
-    });
   }
 
   void _createMarkers() {
@@ -240,7 +297,7 @@ class _MapScreenState extends State<MapScreen> {
               style: const TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 16),
-            if (entity.image != null && entity.image!.isNotEmpty)
+            if (entity.imageUrl != null && entity.imageUrl!.isNotEmpty)
               GestureDetector(
                 onTap: () => _showFullImage(entity),
                 child: Container(
@@ -262,9 +319,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildImageWidget(Entity entity) {
-    if (entity.image != null && entity.image!.startsWith('/')) {
+    if (entity.imageUrl != null && entity.imageUrl!.startsWith('/')) {
       return Image.file(
-        File(entity.image!),
+        File(entity.imageUrl!),
         fit: BoxFit.cover,
         errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
           return const Center(
@@ -303,9 +360,9 @@ class _MapScreenState extends State<MapScreen> {
               boundaryMargin: const EdgeInsets.all(20),
               minScale: 0.5,
               maxScale: 4,
-              child: entity.image != null && entity.image!.startsWith('/')
+              child: entity.imageUrl != null && entity.imageUrl!.startsWith('/')
                   ? Image.file(
-                File(entity.image!),
+                File(entity.imageUrl!),
                 fit: BoxFit.contain,
                 errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
                   return const Center(
@@ -334,6 +391,27 @@ class _MapScreenState extends State<MapScreen> {
 
   void _onMapCreated(GoogleMapController controller) {
     _mapController = controller;
+  }
+
+  void _navigateToEntityForm() async {
+    // Navigate to the entity form and wait for result
+    final result = await Navigator.of(context).pushNamed(EntityFormScreen.routeName);
+    // If we received true as a result, refresh entities
+    if (result == true) {
+      _checkUserAndLoadEntities();
+    }
+  }
+
+  void _navigateToEntityDetails(Entity entity) async {
+    // Navigate to entity details and wait for result
+    final result = await Navigator.of(context).pushNamed(
+      EntityDetailsScreen.routeName,
+      arguments: entity,
+    );
+    // If we received true as a result, refresh entities
+    if (result == true) {
+      _checkUserAndLoadEntities();
+    }
   }
 
   @override
@@ -375,6 +453,11 @@ class _MapScreenState extends State<MapScreen> {
             zoomControlsEnabled: true,
             compassEnabled: true,
           ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _navigateToEntityForm,
+        child: const Icon(Icons.add),
+        tooltip: 'Add new entity',
+      ),
     );
   }
 }

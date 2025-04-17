@@ -90,7 +90,9 @@ class SyncService {
                     title: entity.title,
                     lat: entity.lat,
                     lon: entity.lon,
-                    image: entity.image,
+                    imageUrl: entity.imageUrl,
+                    createdBy: entity.createdBy,
+                    timestamp: DateTime.now().millisecondsSinceEpoch,
                   );
                   
                   // Insert into local DB as synced

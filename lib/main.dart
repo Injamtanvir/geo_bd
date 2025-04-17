@@ -4,6 +4,10 @@ import 'screens/map_screen.dart';
 import 'screens/entity_form_screen.dart';
 import 'screens/entity_list_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/all_user_map_screen.dart';
+import 'screens/all_entity_list_screen.dart';
+import 'screens/user_entity_list_screen.dart';
+import 'screens/entity_details_screen.dart';
 import 'services/auth_service.dart';
 import 'services/db_helper.dart';
 import 'services/mongodb_helper.dart';
@@ -57,6 +61,10 @@ class MyApp extends StatelessWidget
         EntityFormScreen.routeName: (ctx) => const EntityFormScreen(),
         EntityListScreen.routeName: (ctx) => const EntityListScreen(),
         AuthScreen.routeName: (ctx) => const AuthScreen(),
+        AllUserMapScreen.routeName: (ctx) => const AllUserMapScreen(),
+        AllEntityListScreen.routeName: (ctx) => const AllEntityListScreen(),
+        UserEntityListScreen.routeName: (ctx) => const UserEntityListScreen(),
+        EntityDetailsScreen.routeName: (ctx) => const EntityDetailsScreen(),
       },
     );
   }
