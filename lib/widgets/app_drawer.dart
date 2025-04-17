@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../screens/map_screen.dart';
 import '../screens/entity_form_screen.dart';
 import '../screens/entity_list_screen.dart';
+import '../screens/all_user_entity_map_screen.dart';
+import '../screens/all_user_entity_list_screen.dart';
 import '../screens/auth_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/connectivity_provider.dart';
@@ -90,7 +92,7 @@ class AppDrawer extends StatelessWidget {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.add_location_alt),
+                  leading: const Icon(Icons.add_location),
                   title: const Text('Add Entity'),
                   onTap: () {
                     Navigator.pushReplacementNamed(context, EntityFormScreen.routeName);
@@ -101,6 +103,20 @@ class AppDrawer extends StatelessWidget {
                   title: const Text('Entity List'),
                   onTap: () {
                     Navigator.pushReplacementNamed(context, EntityListScreen.routeName);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.map_outlined),
+                  title: const Text('All User Entity Map'),
+                  onTap: () {
+                    Navigator.pushReplacementNamed(context, AllUserEntityMapScreen.routeName);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.list_alt),
+                  title: const Text('All User Entity List'),
+                  onTap: () {
+                    Navigator.pushReplacementNamed(context, AllUserEntityListScreen.routeName);
                   },
                 ),
               ],
