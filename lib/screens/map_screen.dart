@@ -13,6 +13,7 @@ import '../services/sync_service.dart';
 import '../services/event_bus.dart';
 import '../utils/connectivity_provider.dart';
 import '../widgets/app_drawer.dart';
+import '../services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
   static const routeName = '/map';
@@ -28,6 +29,7 @@ class _MapScreenState extends State<MapScreen> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final MongoDBHelper _mongoDBHelper = MongoDBHelper();
   final SyncService _syncService = SyncService();
+  final AuthService _authService = AuthService();
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   List<Entity> _entities = [];
@@ -36,6 +38,7 @@ class _MapScreenState extends State<MapScreen> {
   String _statusMessage = '';
   bool _previousOnlineStatus = false;
   late StreamSubscription<EntityEvent> _entitySubscription;
+  String? _currentUsername;
 
   // Default position (Center of Bangladesh)
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
@@ -43,7 +46,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _loadEntities();
+    _checkUserAndLoadEntities();
     
     // Listen for entity events
     _entitySubscription = EventBus().entityStream.listen((event) {
@@ -69,6 +72,9 @@ class _MapScreenState extends State<MapScreen> {
     }
     
     _previousOnlineStatus = isOnline;
+    
+    // Check if user changed
+    _checkUserAndLoadEntities();
   }
 
   @override
@@ -83,6 +89,26 @@ class _MapScreenState extends State<MapScreen> {
       final success = await _syncService.syncOfflineData();
       if (success) {
         // Reload entities after successful sync
+        _loadEntities();
+      }
+    }
+  }
+
+  Future<void> _checkUserAndLoadEntities() async {
+    final username = await _authService.getUsername();
+    
+    if (_currentUsername != username) {
+      _currentUsername = username;
+      
+      if (username == null) {
+        // User logged out, clear entities
+        setState(() {
+          _entities = [];
+          _markers.clear();
+        });
+        print('User logged out. Cleared entities and markers.');
+      } else {
+        // User logged in or changed, load entities
         _loadEntities();
       }
     }

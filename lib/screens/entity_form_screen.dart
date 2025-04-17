@@ -105,32 +105,38 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       if (_entity!.image != null && _entity!.image!.startsWith('/')) {
         _imageFile = File(_entity!.image!);
       }
-    } else {
-      _getCurrentLocation();
     }
+    // Removed the auto-call to _getCurrentLocation()
+    // Now fields will be empty by default
   }
 
   Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
     final currentLocation = await _locationService.getCurrentLocation();
-    if (currentLocation != null && mounted) {
+    
+    if (mounted) {
       setState(() {
-        _latController.text = currentLocation.latitude.toString();
-        _lonController.text = currentLocation.longitude.toString();
+        _isLoading = false;
+        
+        if (currentLocation != null) {
+          _latController.text = currentLocation.latitude.toString();
+          _lonController.text = currentLocation.longitude.toString();
+        } else {
+          final defaultLocation = _locationService.getDefaultLocation();
+          _latController.text = defaultLocation.latitude.toString();
+          _lonController.text = defaultLocation.longitude.toString();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not get current location. Using default.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
       });
-    } else {
-      final defaultLocation = _locationService.getDefaultLocation();
-      setState(() {
-        _latController.text = defaultLocation.latitude.toString();
-        _lonController.text = defaultLocation.longitude.toString();
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not get current location. Using default.'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
     }
   }
 
@@ -207,6 +213,17 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       return;
     }
 
+    // Make sure lat and lon are not empty
+    if (_latController.text.isEmpty || _lonController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please provide latitude and longitude or use current location'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     if (!_isAuthenticated) {
       _showLoginPrompt();
       return;
@@ -261,6 +278,8 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                       duration: Duration(seconds: 2),
                     ),
                   );
+                  
+                  // Navigate back to map screen
                   Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
                 }
               }
@@ -310,6 +329,8 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                     duration: Duration(seconds: 2),
                   ),
                 );
+                
+                // Navigate back to map screen
                 Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
               }
             }
@@ -465,7 +486,10 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                             return 'Required';
                           }
                           try {
-                            double.parse(value);
+                            final lat = double.parse(value);
+                            if (lat < -90 || lat > 90) {
+                              return 'Invalid latitude';
+                            }
                           } catch (e) {
                             return 'Invalid number';
                           }
@@ -488,7 +512,10 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                             return 'Required';
                           }
                           try {
-                            double.parse(value);
+                            final lon = double.parse(value);
+                            if (lon < -180 || lon > 180) {
+                              return 'Invalid longitude';
+                            }
                           } catch (e) {
                             return 'Invalid number';
                           }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/entity.dart';
 import '../services/api_service.dart';
 import '../services/db_helper.dart';
+import '../services/mongodb_helper.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/entity_card.dart';
 import '../services/event_bus.dart';
@@ -17,6 +18,7 @@ class EntityListScreen extends StatefulWidget {
 class _EntityListScreenState extends State<EntityListScreen> {
   final ApiService _apiService = ApiService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final MongoDBHelper _mongoDBHelper = MongoDBHelper();
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
@@ -48,12 +50,28 @@ class _EntityListScreenState extends State<EntityListScreen> {
           for (var entity in _entities) {
             await _dbHelper.insertEntity(entity);
           }
+          
+          // Sync with MongoDB
+          try {
+            await _mongoDBHelper.syncEntities(_entities);
+            print('Entities synced with MongoDB');
+          } catch (e) {
+            print('MongoDB sync failed: $e');
+          }
 
           setState(() {
             _isOfflineMode = false;
           });
         } else {
           print('API returned empty entity list');
+          
+          // Try loading from MongoDB if API returns empty
+          try {
+            _entities = await _mongoDBHelper.getEntities();
+            print('Loaded ${_entities.length} entities from MongoDB');
+          } catch (e) {
+            print('MongoDB load failed: $e');
+          }
         }
       } catch (e) {
         print('API error, falling back to local: $e');
@@ -63,6 +81,14 @@ class _EntityListScreenState extends State<EntityListScreen> {
 
         if (_entities.isEmpty) {
           print('Local database also returned empty entity list');
+          
+          // Try MongoDB as last resort
+          try {
+            _entities = await _mongoDBHelper.getEntities();
+            print('Loaded ${_entities.length} entities from MongoDB');
+          } catch (e) {
+            print('MongoDB load failed: $e');
+          }
         } else {
           print('Loaded ${_entities.length} entities from local database');
         }
@@ -87,7 +113,18 @@ class _EntityListScreenState extends State<EntityListScreen> {
   Future<void> _deleteEntity(Entity entity) async {
     // Only allow deleting local entities in offline mode
     if (_isOfflineMode) {
+      // Delete from local SQLite database
       await _dbHelper.deleteEntity(entity.id!);
+      
+      // Try to delete from MongoDB
+      try {
+        final deleted = await _mongoDBHelper.deleteEntity(entity.id!);
+        if (deleted) {
+          print('Entity also deleted from MongoDB: ${entity.id}');
+        }
+      } catch (e) {
+        print('Failed to delete from MongoDB: $e');
+      }
       
       // Fire an event to notify other screens of the deletion
       EventBus().fireEntityEvent(EntityEvent(entity.id!, EventType.deleted));
@@ -104,14 +141,47 @@ class _EntityListScreenState extends State<EntityListScreen> {
       );
     } else {
       // In online mode, we would need a DELETE API endpoint
-      // Since the API doesn't support deletion in the requirements, we'll
-      // just show a message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('DELETE operation not supported by the API'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      // Since the API doesn't support deletion in the requirements, 
+      // just delete from MongoDB and local database
+      
+      try {
+        // Delete from MongoDB
+        final deleted = await _mongoDBHelper.deleteEntity(entity.id!);
+        
+        if (deleted) {
+          // Delete from local database
+          await _dbHelper.deleteEntity(entity.id!);
+          
+          // Fire an event to notify other screens of the deletion
+          EventBus().fireEntityEvent(EntityEvent(entity.id!, EventType.deleted));
+          
+          setState(() {
+            _entities.removeWhere((e) => e.id == entity.id);
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Entity deleted successfully'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to delete entity. You can only delete your own entities.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } catch (e) {
+        print('Error deleting entity: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting entity: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 

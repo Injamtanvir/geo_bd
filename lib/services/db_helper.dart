@@ -1,11 +1,13 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/entity.dart';
+import 'auth_service.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   factory DatabaseHelper() => _instance;
   static Database? _database;
+  final AuthService _authService = AuthService();
 
   DatabaseHelper._internal();
 
@@ -33,6 +35,7 @@ class DatabaseHelper {
       lat REAL NOT NULL,
       lon REAL NOT NULL,
       image TEXT,
+      created_by TEXT,
       synced INTEGER DEFAULT 1
     )
     ''');
@@ -42,6 +45,14 @@ class DatabaseHelper {
     final db = await database;
     final data = entity.toJson();
     data['synced'] = synced ? 1 : 0;
+    
+    // Add created_by if not present
+    if (data['created_by'] == null) {
+      final username = await _authService.getUsername();
+      if (username != null) {
+        data['created_by'] = username;
+      }
+    }
 
     final existing = await db.query(
       'entities',
@@ -64,7 +75,22 @@ class DatabaseHelper {
   // Get all entities from local database
   Future<List<Entity>> getEntities() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('entities');
+    final username = await _authService.getUsername();
+    
+    List<Map<String, dynamic>> maps;
+    
+    if (username != null) {
+      // Filter by current user
+      maps = await db.query(
+        'entities',
+        where: 'created_by = ?',
+        whereArgs: [username],
+      );
+    } else {
+      // Get all entities if no user is logged in
+      maps = await db.query('entities');
+    }
+    
     return List.generate(maps.length, (i) {
       return Entity(
         id: maps[i]['id'],
@@ -72,17 +98,33 @@ class DatabaseHelper {
         lat: maps[i]['lat'],
         lon: maps[i]['lon'],
         image: maps[i]['image'],
+        createdBy: maps[i]['created_by'],
       );
     });
   }
 
   Future<List<Entity>> getUnsyncedEntities() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'entities',
-      where: 'synced = ?',
-      whereArgs: [0],
-    );
+    final username = await _authService.getUsername();
+    
+    List<Map<String, dynamic>> maps;
+    
+    if (username != null) {
+      // Only get unsynced entities for current user
+      maps = await db.query(
+        'entities',
+        where: 'synced = ? AND created_by = ?',
+        whereArgs: [0, username],
+      );
+    } else {
+      // Get all unsynced entities if no user is logged in
+      maps = await db.query(
+        'entities',
+        where: 'synced = ?',
+        whereArgs: [0],
+      );
+    }
+    
     return List.generate(maps.length, (i) {
       return Entity(
         id: maps[i]['id'],
@@ -90,6 +132,7 @@ class DatabaseHelper {
         lat: maps[i]['lat'],
         lon: maps[i]['lon'],
         image: maps[i]['image'],
+        createdBy: maps[i]['created_by'],
       );
     });
   }
@@ -97,6 +140,15 @@ class DatabaseHelper {
   Future<int> updateEntity(Entity entity) async {
     final db = await database;
     final data = entity.toJson();
+    
+    // Ensure created_by field is set
+    if (data['created_by'] == null) {
+      final username = await _authService.getUsername();
+      if (username != null) {
+        data['created_by'] = username;
+      }
+    }
+    
     return await db.update(
       'entities',
       data,
@@ -117,11 +169,23 @@ class DatabaseHelper {
 
   Future<int> deleteEntity(int id) async {
     final db = await database;
-    return await db.delete(
-      'entities',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final username = await _authService.getUsername();
+    
+    if (username != null) {
+      // Only delete entities created by current user
+      return await db.delete(
+        'entities',
+        where: 'id = ? AND created_by = ?',
+        whereArgs: [id, username],
+      );
+    } else {
+      // Delete entity without user check
+      return await db.delete(
+        'entities',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
   }
 
   Future<void> clearEntities() async {

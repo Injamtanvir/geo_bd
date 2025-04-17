@@ -1,5 +1,6 @@
 import 'package:mongo_dart/mongo_dart.dart';
 import '../models/entity.dart';
+import 'auth_service.dart';
 
 class MongoDBHelper {
   static final MongoDBHelper _instance = MongoDBHelper._internal();
@@ -11,6 +12,7 @@ class MongoDBHelper {
 
   Db? _db;
   DbCollection? _collection;
+  final AuthService _authService = AuthService();
 
   MongoDBHelper._internal();
 
@@ -44,7 +46,7 @@ class MongoDBHelper {
     }
   }
 
-  // Save entity to MongoDB
+  // Save entity to MongoDB with user info
   Future<ObjectId> saveEntity(Entity entity) async {
     try {
       await _ensureConnected();
@@ -53,6 +55,26 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
+      // Get current username
+      final username = await _authService.getUsername();
+      if (username == null) {
+        throw Exception('User not logged in');
+      }
+
+      // Check if entity with this ID already exists for this user
+      if (entity.id != null && entity.id! > 0) {
+        final existingEntity = await _collection!.findOne(
+          where.eq('original_id', entity.id).eq('created_by', username)
+        );
+        
+        if (existingEntity != null) {
+          // If it exists, update it instead
+          await updateEntity(entity);
+          return ObjectId.fromHexString(existingEntity['_id'].toHexString());
+        }
+      }
+
+      // Create new entity
       final Map<String, dynamic> data = {
         'title': entity.title,
         'lat': entity.lat,
@@ -60,9 +82,11 @@ class MongoDBHelper {
         'image': entity.image,
         'original_id': entity.id,
         'created_at': DateTime.now(),
+        'created_by': username, // Add username
       };
 
       final result = await _collection!.insert(data);
+      print('Entity saved to MongoDB by user: $username with ID: ${entity.id}');
       return result as ObjectId;
     } catch (e) {
       print('Error saving entity to MongoDB: $e');
@@ -70,7 +94,7 @@ class MongoDBHelper {
     }
   }
 
-  // Get all entities from MongoDB
+  // Get all entities from MongoDB for current user
   Future<List<Entity>> getEntities() async {
     try {
       await _ensureConnected();
@@ -79,15 +103,27 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      final List<Map<String, dynamic>> docs = await _collection!.find().toList();
+      // Get current username
+      final username = await _authService.getUsername();
+      
+      // Only get entities created by current user
+      if (username == null) {
+        return []; // Return empty list if not logged in
+      }
+      
+      final query = where.eq('created_by', username);
+      final List<Map<String, dynamic>> docs = await _collection!.find(query).toList();
+      
+      print('Fetched ${docs.length} entities from MongoDB for user: $username');
 
       return docs.map((doc) {
         return Entity(
-          id: doc['original_id'] ?? doc['_id'].toHexString(),
+          id: doc['original_id'] ?? int.parse(doc['_id'].toHexString().substring(0, 8), radix: 16),
           title: doc['title'],
           lat: doc['lat'],
           lon: doc['lon'],
           image: doc['image'],
+          createdBy: doc['created_by'],
         );
       }).toList();
     } catch (e) {
@@ -104,7 +140,16 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      final query = where.eq('original_id', entity.id);
+      // Get current username
+      final username = await _authService.getUsername();
+      if (username == null) {
+        throw Exception('User not logged in');
+      }
+
+      final query = where
+          .eq('original_id', entity.id)
+          .eq('created_by', username); // Only update user's own entities
+
       final update = {
         '\$set': {
           'title': entity.title,
@@ -116,6 +161,7 @@ class MongoDBHelper {
       };
 
       final result = await _collection!.update(query, update);
+      print('Entity updated in MongoDB by user: $username');
       return result['nModified'] > 0;
     } catch (e) {
       print('Error updating entity in MongoDB: $e');
@@ -131,7 +177,19 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      final result = await _collection!.remove(where.eq('original_id', entityId));
+      // Get current username
+      final username = await _authService.getUsername();
+      if (username == null) {
+        throw Exception('User not logged in');
+      }
+
+      // Only delete user's own entities
+      final query = where
+          .eq('original_id', entityId)
+          .eq('created_by', username);
+
+      final result = await _collection!.remove(query);
+      print('Entity deleted from MongoDB by user: $username');
       return result['n'] > 0;
     } catch (e) {
       print('Error deleting entity from MongoDB: $e');
@@ -147,8 +205,15 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
+      // Get current username
+      final username = await _authService.getUsername();
+      if (username == null) {
+        throw Exception('User not logged in');
+      }
+
       for (var entity in entities) {
-        final existing = await _collection!.findOne(where.eq('original_id', entity.id));
+        final existing = await _collection!.findOne(
+            where.eq('original_id', entity.id).eq('created_by', username));
 
         if (existing == null) {
           await saveEntity(entity);
