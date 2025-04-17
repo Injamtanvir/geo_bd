@@ -129,7 +129,7 @@ class SyncService {
               print('Entity updated on server');
               await _dbHelper.markAsSynced(entity.id!);
               
-              // Update in MongoDB
+
               try {
                 await _mongoDBHelper.updateEntity(entity);
               } catch (e) {

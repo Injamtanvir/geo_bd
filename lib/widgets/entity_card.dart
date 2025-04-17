@@ -87,9 +87,7 @@ class EntityCard extends StatelessWidget {
     );
   }
 
-  // Helper method to build the appropriate image widget
   Widget _buildImageWidget() {
-    // Check if it's a local file path (starts with '/')
     if (entity.image != null && entity.image!.startsWith('/')) {
       return Image.file(
         File(entity.image!),
@@ -101,7 +99,6 @@ class EntityCard extends StatelessWidget {
         },
       );
     } else {
-      // It's a remote URL
       return CachedNetworkImage(
         imageUrl: entity.getFullImageUrl(),
         fit: BoxFit.cover,

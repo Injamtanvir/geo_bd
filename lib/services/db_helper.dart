@@ -46,7 +46,7 @@ class DatabaseHelper {
     final data = entity.toJson();
     data['synced'] = synced ? 1 : 0;
     
-    // Add created_by if not present
+
     if (data['created_by'] == null) {
       final username = await _authService.getUsername();
       if (username != null) {
@@ -61,7 +61,6 @@ class DatabaseHelper {
     );
 
     if (existing.isNotEmpty) {
-      // Update instead of insert
       return await updateEntity(entity);
     }
 
@@ -72,7 +71,6 @@ class DatabaseHelper {
     );
   }
 
-  // Get all entities from local database
   Future<List<Entity>> getEntities() async {
     final db = await database;
     final username = await _authService.getUsername();
@@ -80,14 +78,13 @@ class DatabaseHelper {
     List<Map<String, dynamic>> maps;
     
     if (username != null) {
-      // Filter by current user
       maps = await db.query(
         'entities',
         where: 'created_by = ?',
         whereArgs: [username],
       );
-    } else {
-      // Get all entities if no user is logged in
+    }
+    else {
       maps = await db.query('entities');
     }
     
@@ -110,14 +107,13 @@ class DatabaseHelper {
     List<Map<String, dynamic>> maps;
     
     if (username != null) {
-      // Only get unsynced entities for current user
       maps = await db.query(
         'entities',
         where: 'synced = ? AND created_by = ?',
         whereArgs: [0, username],
       );
-    } else {
-      // Get all unsynced entities if no user is logged in
+    }
+    else {
       maps = await db.query(
         'entities',
         where: 'synced = ?',
@@ -140,8 +136,7 @@ class DatabaseHelper {
   Future<int> updateEntity(Entity entity) async {
     final db = await database;
     final data = entity.toJson();
-    
-    // Ensure created_by field is set
+
     if (data['created_by'] == null) {
       final username = await _authService.getUsername();
       if (username != null) {

@@ -40,18 +40,16 @@ class _MapScreenState extends State<MapScreen> {
   late StreamSubscription<EntityEvent> _entitySubscription;
   String? _currentUsername;
 
-  // Default position (Center of Bangladesh)
+
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
 
   @override
   void initState() {
     super.initState();
     _checkUserAndLoadEntities();
-    
-    // Listen for entity events
+
     _entitySubscription = EventBus().entityStream.listen((event) {
       if (event.type == EventType.deleted) {
-        // Remove the marker and entity from the list
         setState(() {
           _markers.removeWhere((marker) => marker.markerId.value == event.entityId.toString());
           _entities.removeWhere((entity) => entity.id == event.entityId);
@@ -63,17 +61,14 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check if connectivity status changed
     final isOnline = Provider.of<ConnectivityProvider>(context).isOnline;
-    
-    // If we went from offline to online, trigger a sync
+
     if (isOnline && !_previousOnlineStatus) {
       _syncOfflineData();
     }
     
     _previousOnlineStatus = isOnline;
-    
-    // Check if user changed
+
     _checkUserAndLoadEntities();
   }
 
@@ -84,11 +79,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _syncOfflineData() async {
-    // Only attempt sync if we're in offline mode or if we need to sync
     if (_isOfflineMode) {
       final success = await _syncService.syncOfflineData();
       if (success) {
-        // Reload entities after successful sync
         _loadEntities();
       }
     }
@@ -101,14 +94,13 @@ class _MapScreenState extends State<MapScreen> {
       _currentUsername = username;
       
       if (username == null) {
-        // User logged out, clear entities
         setState(() {
           _entities = [];
           _markers.clear();
         });
         print('User logged out. Cleared entities and markers.');
-      } else {
-        // User logged in or changed, load entities
+      }
+      else {
         _loadEntities();
       }
     }
@@ -133,12 +125,12 @@ class _MapScreenState extends State<MapScreen> {
             print('Loaded ${apiEntities.length} entities from API successfully');
             _entities = apiEntities;
 
-            // Save to local SQLite database for offline access
+            //offline access
             for (var entity in _entities) {
               await _dbHelper.insertEntity(entity);
             }
             
-            // Sync with MongoDB for backup and authentication
+            // Sync with MongoDB
             try {
               await _mongoDBHelper.syncEntities(_entities);
               print('Entities synced with MongoDB');
@@ -165,7 +157,6 @@ class _MapScreenState extends State<MapScreen> {
       print('Error loading entities: $e');
       _entities = [];
       setState(() {
-        // Removed status message
       });
     }
 
@@ -177,13 +168,11 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadLocalEntities() async {
-    // First try SQLite database
     _entities = await _dbHelper.getEntities();
       
     if (_entities.isEmpty) {
       print('Local SQLite database is empty, trying MongoDB...');
-      
-      // If SQLite is empty, try MongoDB (might work if we have local MongoDB connection)
+
       try {
         _entities = await _mongoDBHelper.getEntities();
         print('Loaded ${_entities.length} entities from MongoDB');
@@ -273,7 +262,6 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildImageWidget(Entity entity) {
-    // Check if it's a local file path (starts with '/')
     if (entity.image != null && entity.image!.startsWith('/')) {
       return Image.file(
         File(entity.image!),

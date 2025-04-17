@@ -15,7 +15,7 @@ import '../widgets/app_drawer.dart';
 import '../screens/auth_screen.dart';
 import '../screens/map_screen.dart';
 
-class EntityFormScreen extends StatefulWidget {
+class EntityFormScreen extends StatefulWidget{
   static const routeName = '/entity-form';
   const EntityFormScreen({Key? key}) : super(key: key);
 
@@ -52,8 +52,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
         _isAuthenticated = isLoggedIn;
       });
       
-      if (!isLoggedIn) {
-        // Show a dialog to prompt login
+      if (!isLoggedIn){
         Future.delayed(Duration.zero, () {
           _showLoginPrompt();
         });
@@ -61,14 +60,14 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     }
   }
 
-  void _showLoginPrompt() {
+  void _showLoginPrompt(){
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Authentication Required'),
         content: const Text(
-          'You need to be logged in to create or edit entities. Would you like to login now?',
+          'You need to be logged in to create or edit entities. Would you like to login now?',// This will never need
         ),
         actions: [
           TextButton(
@@ -94,10 +93,10 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments;
-    if (args != null && args is Entity) {
+    if (args != null && args is Entity)
+    {
       _entity = args;
       _isEdit = true;
-      // Fill form with entity data
       _titleController.text = _entity!.title;
       _latController.text = _entity!.lat.toString();
       _lonController.text = _entity!.lon.toString();
@@ -106,8 +105,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
         _imageFile = File(_entity!.image!);
       }
     }
-    // Removed the auto-call to _getCurrentLocation()
-    // Now fields will be empty by default
+
   }
 
   Future<void> _getCurrentLocation() async {
@@ -150,7 +148,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       }
 
       if (pickedImage != null) {
-        // Resize image to 800x600 as required
         final resizedImage = await ImageUtils.resizeImage(pickedImage);
         if (mounted && resizedImage != null) {
           setState(() {
@@ -171,7 +168,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     }
   }
 
-  void _showImagePickerOptions() {
+  void _showImagePickerOptions(){
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Column(
@@ -213,7 +210,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       return;
     }
 
-    // Make sure lat and lon are not empty
     if (_latController.text.isEmpty || _lonController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -260,10 +256,8 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                   image: _imageFile?.path ?? _entity!.image,
                 );
 
-                // Update in local SQLite database
                 await _dbHelper.updateEntity(updatedEntity);
-                
-                // Update in MongoDB
+
                 try {
                   await _mongoDBHelper.updateEntity(updatedEntity);
                   print('Entity updated in MongoDB');
@@ -278,21 +272,21 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                       duration: Duration(seconds: 2),
                     ),
                   );
-                  
-                  // Navigate back to map screen
+
                   Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
                 }
               }
             } else {
               _updateOffline();
             }
-          } catch (e) {
+          } catch (e)
+          {
             print('Error updating entity: $e');
             _updateOffline();
           }
         }
-      } else {
-        // Create new entity
+      }
+      else {
         try {
           if (isOnline) {
             final id = await _apiService.createEntity(
@@ -311,10 +305,8 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                 image: _imageFile?.path,
               );
 
-              // Save to local SQLite database
               await _dbHelper.insertEntity(newEntity);
-              
-              // Save to MongoDB
+
               try {
                 await _mongoDBHelper.saveEntity(newEntity);
                 print('Entity saved to MongoDB');
@@ -329,8 +321,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                     duration: Duration(seconds: 2),
                   ),
                 );
-                
-                // Navigate back to map screen
+
                 Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
               }
             }
@@ -363,7 +354,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   }
 
   Future<void> _updateOffline() async {
-    // Save offline and mark as needing sync
     final updatedEntity = Entity(
       id: _entity!.id,
       title: _titleController.text,
@@ -375,7 +365,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     await _dbHelper.updateEntity(updatedEntity);
     await _dbHelper.markAsSynced(_entity!.id!, synced: false);
 
-    // Try to save to MongoDB even in offline mode (might work if MongoDB is locally available)
     try {
       await _mongoDBHelper.updateEntity(updatedEntity);
       print('Entity updated in MongoDB while offline');
@@ -410,7 +399,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     // Save to local database and mark as not synced
     await _dbHelper.insertEntity(newEntity, synced: false);
 
-    // Try to save to MongoDB even in offline mode
     try {
       await _mongoDBHelper.saveEntity(newEntity);
       print('Entity saved to MongoDB while offline');
@@ -526,7 +514,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Get current location button
                 ElevatedButton.icon(
                   icon: const Icon(Icons.my_location),
                   label: const Text('Use Current Location'),
@@ -559,7 +546,7 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                           child: _buildImagePreview(),
                         ),
                         const SizedBox(height: 12),
-                        // Image picker button
+
                         ElevatedButton.icon(
                           icon: const Icon(Icons.photo),
                           label: Text(_isEdit ? 'Change Image' : 'Select Image'),
@@ -570,7 +557,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Save button
                 SizedBox(
                   height: 50,
                   child: ElevatedButton(

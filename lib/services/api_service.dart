@@ -106,13 +106,11 @@ class ApiService {
       final uri = Uri.parse(baseUrl);
       final request = http.MultipartRequest('PUT', uri);
 
-      // Add text fields
       request.fields['id'] = id.toString();
       request.fields['title'] = title;
       request.fields['lat'] = lat.toString();
       request.fields['lon'] = lon.toString();
 
-      // Add image if provided
       if (imageFile != null) {
         final fileStream = http.ByteStream(imageFile.openRead());
         final fileLength = await imageFile.length();
@@ -135,10 +133,12 @@ class ApiService {
 
       if (response.statusCode == 200) {
         return true;
-      } else {
+      }
+      else {
         throw Exception('Failed to update entity: ${response.statusCode}, ${response.body}');
       }
-    } catch (e) {
+    }
+    catch (e) {
       print('Error in updateEntity: $e');
       throw Exception('Failed to update entity: $e');
     }

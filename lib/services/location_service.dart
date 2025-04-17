@@ -63,6 +63,6 @@ class LocationService {
   }
 
   LatLng getDefaultLocation() {
-    return const LatLng(23.6850, 90.3563); // Center of Bangladesh
+    return const LatLng(23.6850, 90.3563); //bangladesh centar
   }
 }

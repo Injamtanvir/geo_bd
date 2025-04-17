@@ -16,16 +16,16 @@ class MongoDBHelper {
 
   MongoDBHelper._internal();
 
-  // Connecting to MongoDB
-  Future<void> connect() async {
+  Future<void> connect() async{
     if (_db != null && _db!.isConnected) return;
 
-    try {
+    try{
       _db = await Db.create(_connectionString);
       await _db!.open();
       _collection = _db!.collection('entities');
       print('Connected to MongoDB');
-    } catch (e) {
+    }
+    catch (e) {
       print('Error connecting to MongoDB: $e');
       rethrow;
     }
@@ -46,7 +46,6 @@ class MongoDBHelper {
     }
   }
 
-  // Save entity to MongoDB with user info
   Future<ObjectId> saveEntity(Entity entity) async {
     try {
       await _ensureConnected();
@@ -55,26 +54,23 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      // Get current username
       final username = await _authService.getUsername();
       if (username == null) {
         throw Exception('User not logged in');
       }
 
-      // Check if entity with this ID already exists for this user
       if (entity.id != null && entity.id! > 0) {
         final existingEntity = await _collection!.findOne(
           where.eq('original_id', entity.id).eq('created_by', username)
         );
         
         if (existingEntity != null) {
-          // If it exists, update it instead
           await updateEntity(entity);
           return ObjectId.fromHexString(existingEntity['_id'].toHexString());
         }
       }
 
-      // Create new entity
+      // Add this entity on mongoDb
       final Map<String, dynamic> data = {
         'title': entity.title,
         'lat': entity.lat,
@@ -82,7 +78,7 @@ class MongoDBHelper {
         'image': entity.image,
         'original_id': entity.id,
         'created_at': DateTime.now(),
-        'created_by': username, // Add username
+        'created_by': username,
       };
 
       final result = await _collection!.insert(data);
@@ -94,7 +90,6 @@ class MongoDBHelper {
     }
   }
 
-  // Get all entities from MongoDB for current user
   Future<List<Entity>> getEntities() async {
     try {
       await _ensureConnected();
@@ -103,12 +98,10 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      // Get current username
       final username = await _authService.getUsername();
-      
-      // Only get entities created by current user
+
       if (username == null) {
-        return []; // Return empty list if not logged in
+        throw Exception('User not logged in');
       }
       
       final query = where.eq('created_by', username);
@@ -177,13 +170,11 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      // Get current username
       final username = await _authService.getUsername();
       if (username == null) {
         throw Exception('User not logged in');
       }
 
-      // Only delete user's own entities
       final query = where
           .eq('original_id', entityId)
           .eq('created_by', username);
@@ -205,7 +196,6 @@ class MongoDBHelper {
         throw Exception('MongoDB collection not initialized');
       }
 
-      // Get current username
       final username = await _authService.getUsername();
       if (username == null) {
         throw Exception('User not logged in');
@@ -215,7 +205,7 @@ class MongoDBHelper {
         final existing = await _collection!.findOne(
             where.eq('original_id', entity.id).eq('created_by', username));
 
-        if (existing == null) {
+        if (existing == null){
           await saveEntity(entity);
         } else {
           await updateEntity(entity);

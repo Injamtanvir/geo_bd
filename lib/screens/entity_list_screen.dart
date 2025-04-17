@@ -22,7 +22,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
-  String _statusMessage = ''; // Changed from _errorMessage to _statusMessage
+  String _statusMessage = '';
 
   @override
   void initState() {
@@ -37,7 +37,6 @@ class _EntityListScreenState extends State<EntityListScreen> {
     });
 
     try {
-      // Always try to load from server first
       print('Attempting to load entities from API...');
       try {
         final apiEntities = await _apiService.getEntities();
@@ -46,12 +45,10 @@ class _EntityListScreenState extends State<EntityListScreen> {
           print('Loaded ${apiEntities.length} entities from API successfully');
           _entities = apiEntities;
 
-          // Save to local database for offline access
           for (var entity in _entities) {
             await _dbHelper.insertEntity(entity);
           }
-          
-          // Sync with MongoDB
+
           try {
             await _mongoDBHelper.syncEntities(_entities);
             print('Entities synced with MongoDB');
@@ -64,8 +61,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
           });
         } else {
           print('API returned empty entity list');
-          
-          // Try loading from MongoDB if API returns empty
+
           try {
             _entities = await _mongoDBHelper.getEntities();
             print('Loaded ${_entities.length} entities from MongoDB');
@@ -76,13 +72,11 @@ class _EntityListScreenState extends State<EntityListScreen> {
       } catch (e) {
         print('API error, falling back to local: $e');
 
-        // Try loading from local DB if API fails
         _entities = await _dbHelper.getEntities();
 
         if (_entities.isEmpty) {
           print('Local database also returned empty entity list');
-          
-          // Try MongoDB as last resort
+
           try {
             _entities = await _mongoDBHelper.getEntities();
             print('Loaded ${_entities.length} entities from MongoDB');
@@ -111,12 +105,9 @@ class _EntityListScreenState extends State<EntityListScreen> {
   }
 
   Future<void> _deleteEntity(Entity entity) async {
-    // Only allow deleting local entities in offline mode
     if (_isOfflineMode) {
-      // Delete from local SQLite database
       await _dbHelper.deleteEntity(entity.id!);
-      
-      // Try to delete from MongoDB
+
       try {
         final deleted = await _mongoDBHelper.deleteEntity(entity.id!);
         if (deleted) {
@@ -125,8 +116,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
       } catch (e) {
         print('Failed to delete from MongoDB: $e');
       }
-      
-      // Fire an event to notify other screens of the deletion
+
       EventBus().fireEntityEvent(EntityEvent(entity.id!, EventType.deleted));
       
       setState(() {
@@ -139,20 +129,15 @@ class _EntityListScreenState extends State<EntityListScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-    } else {
-      // In online mode, we would need a DELETE API endpoint
-      // Since the API doesn't support deletion in the requirements, 
-      // just delete from MongoDB and local database
-      
+    }
+    else {
+
       try {
-        // Delete from MongoDB
         final deleted = await _mongoDBHelper.deleteEntity(entity.id!);
         
         if (deleted) {
-          // Delete from local database
           await _dbHelper.deleteEntity(entity.id!);
-          
-          // Fire an event to notify other screens of the deletion
+
           EventBus().fireEntityEvent(EntityEvent(entity.id!, EventType.deleted));
           
           setState(() {

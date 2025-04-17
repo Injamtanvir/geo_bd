@@ -18,11 +18,9 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Initialize local database
   final dbHelper = DatabaseHelper();
   await dbHelper.database;
 
-  // Initialize MongoDB connection
   try {
     final mongoDBHelper = MongoDBHelper();
     await mongoDBHelper.connect();
@@ -39,11 +37,12 @@ void main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatelessWidget
+{
   const MyApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context){
     return MaterialApp(
       title: 'Geo Bangladesh App',
       debugShowCheckedModeBanner: false,

@@ -14,25 +14,20 @@ enum EventType {
 }
 
 class EventBus {
-  // Singleton pattern
   static final EventBus _instance = EventBus._internal();
   factory EventBus() => _instance;
   
   EventBus._internal();
-  
-  // Stream controller for entity events
+
   final StreamController<EntityEvent> _entityController = StreamController<EntityEvent>.broadcast();
-  
-  // Get the stream
+
   Stream<EntityEvent> get entityStream => _entityController.stream;
-  
-  // Add an event to the stream
-  void fireEntityEvent(EntityEvent event) {
+
+  void fireEntityEvent(EntityEvent event){
     _entityController.add(event);
   }
-  
-  // Close the stream controller
-  void dispose() {
+
+  void dispose(){
     _entityController.close();
   }
 } 

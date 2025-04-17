@@ -40,10 +40,8 @@ class Entity {
   String getFullImageUrl() {
     if (image == null || image!.isEmpty) return '';
 
-    // If it's already a full URL, return it
     if (image!.startsWith('http')) return image!;
 
-    // If it's a local file path, return as is
     if (image!.startsWith('/')) return image!;
 
     return 'https://labs.anontech.info/cse489/t3/${image!}';
