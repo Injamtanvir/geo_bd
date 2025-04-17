@@ -4,6 +4,7 @@ class Entity {
   final double lat;
   final double lon;
   final String? image;
+  final String? createdBy;
 
   Entity({
     this.id,
@@ -11,6 +12,7 @@ class Entity {
     required this.lat,
     required this.lon,
     this.image,
+    this.createdBy,
   });
 
   factory Entity.fromJson(Map<String, dynamic> json) {
@@ -20,6 +22,7 @@ class Entity {
       lat: json['lat'] is String ? double.parse(json['lat']) : json['lat'],
       lon: json['lon'] is String ? double.parse(json['lon']) : json['lon'],
       image: json['image'],
+      createdBy: json['created_by'],
     );
   }
 
@@ -30,12 +33,18 @@ class Entity {
       'lat': lat,
       'lon': lon,
       if (image != null) 'image': image,
+      if (createdBy != null) 'created_by': createdBy,
     };
   }
 
   String getFullImageUrl() {
-    if (image == null) return '';
-    return 'https://labs.anontech.info/cse489/t3/$image';
+    if (image == null || image!.isEmpty) return '';
+
+    if (image!.startsWith('http')) return image!;
+
+    if (image!.startsWith('/')) return image!;
+
+    return 'https://labs.anontech.info/cse489/t3/${image!}';
   }
 
   Entity copyWith({
@@ -44,6 +53,7 @@ class Entity {
     double? lat,
     double? lon,
     String? image,
+    String? createdBy,
   }) {
     return Entity(
       id: id ?? this.id,
@@ -51,6 +61,7 @@ class Entity {
       lat: lat ?? this.lat,
       lon: lon ?? this.lon,
       image: image ?? this.image,
+      createdBy: createdBy ?? this.createdBy,
     );
   }
 }

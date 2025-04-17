@@ -39,8 +39,8 @@ class _AuthScreenState extends State<AuthScreen> {
         if (mounted) {
           Navigator.of(context).pushReplacementNamed('/');
         }
-      } else {
-        // Register
+      }
+      else {
         final success = await _authService.register(
           _usernameController.text.trim(),
           _passwordController.text.trim(),
@@ -112,7 +112,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Username field
                   TextFormField(
                     controller: _usernameController,
                     decoration: const InputDecoration(
@@ -131,7 +130,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     decoration: const InputDecoration(
@@ -168,9 +166,8 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   const SizedBox(height: 16),
 
-                  // Toggle between login and register
                   TextButton(
-                    onPressed: () {
+                    onPressed: (){
                       setState(() {
                         _isLogin = !_isLogin;
                       });
