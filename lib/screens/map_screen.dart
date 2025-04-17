@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,6 +10,7 @@ import '../services/location_service.dart';
 import '../services/db_helper.dart';
 import '../services/mongodb_helper.dart';
 import '../services/sync_service.dart';
+import '../services/event_bus.dart';
 import '../utils/connectivity_provider.dart';
 import '../widgets/app_drawer.dart';
 
@@ -33,6 +35,7 @@ class _MapScreenState extends State<MapScreen> {
   bool _isOfflineMode = false;
   String _statusMessage = '';
   bool _previousOnlineStatus = false;
+  late StreamSubscription<EntityEvent> _entitySubscription;
 
   // Default position (Center of Bangladesh)
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
@@ -41,6 +44,17 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _loadEntities();
+    
+    // Listen for entity events
+    _entitySubscription = EventBus().entityStream.listen((event) {
+      if (event.type == EventType.deleted) {
+        // Remove the marker and entity from the list
+        setState(() {
+          _markers.removeWhere((marker) => marker.markerId.value == event.entityId.toString());
+          _entities.removeWhere((entity) => entity.id == event.entityId);
+        });
+      }
+    });
   }
 
   @override
@@ -55,6 +69,12 @@ class _MapScreenState extends State<MapScreen> {
     }
     
     _previousOnlineStatus = isOnline;
+  }
+
+  @override
+  void dispose() {
+    _entitySubscription.cancel();
+    super.dispose();
   }
 
   Future<void> _syncOfflineData() async {

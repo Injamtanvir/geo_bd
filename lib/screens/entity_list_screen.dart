@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/db_helper.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/entity_card.dart';
+import '../services/event_bus.dart';
 
 class EntityListScreen extends StatefulWidget {
   static const routeName = '/entity-list';
@@ -87,9 +88,14 @@ class _EntityListScreenState extends State<EntityListScreen> {
     // Only allow deleting local entities in offline mode
     if (_isOfflineMode) {
       await _dbHelper.deleteEntity(entity.id!);
+      
+      // Fire an event to notify other screens of the deletion
+      EventBus().fireEntityEvent(EntityEvent(entity.id!, EventType.deleted));
+      
       setState(() {
         _entities.removeWhere((e) => e.id == entity.id);
       });
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Entity deleted locally'),
