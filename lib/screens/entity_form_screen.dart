@@ -1,12 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/entity.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/db_helper.dart';
+import '../services/mongodb_helper.dart';
+import '../services/auth_service.dart';
 import '../utils/image_utils.dart';
+import '../utils/connectivity_provider.dart';
 import '../widgets/app_drawer.dart';
+import '../screens/auth_screen.dart';
+import '../screens/map_screen.dart';
 
 class EntityFormScreen extends StatefulWidget {
   static const routeName = '/entity-form';
@@ -21,6 +28,8 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final MongoDBHelper _mongoDBHelper = MongoDBHelper();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _isEdit = false;
   File? _imageFile;
@@ -28,6 +37,58 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
   final TextEditingController _latController = TextEditingController();
   final TextEditingController _lonController = TextEditingController();
   Entity? _entity;
+  bool _isAuthenticated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuthentication();
+  }
+
+  Future<void> _checkAuthentication() async {
+    final isLoggedIn = await _authService.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isAuthenticated = isLoggedIn;
+      });
+      
+      if (!isLoggedIn) {
+        // Show a dialog to prompt login
+        Future.delayed(Duration.zero, () {
+          _showLoginPrompt();
+        });
+      }
+    }
+  }
+
+  void _showLoginPrompt() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Authentication Required'),
+        content: const Text(
+          'You need to be logged in to create or edit entities. Would you like to login now?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushReplacementNamed(AuthScreen.routeName);
+            },
+            child: const Text('Login'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -131,8 +192,6 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     );
   }
 
-
-
   Future<void> _saveForm() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -148,6 +207,11 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
       return;
     }
 
+    if (!_isAuthenticated) {
+      _showLoginPrompt();
+      return;
+    }
+
     _formKey.currentState!.save();
 
     setState(() {
@@ -155,128 +219,116 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     });
 
     try {
+      final isOnline = Provider.of<ConnectivityProvider>(context, listen: false).isOnline;
+      
       if (_isEdit) {
         // Update existing entity
         if (_entity != null) {
           try {
-            final success = await _apiService.updateEntity(
-              id: _entity!.id!,
-              title: _titleController.text,
-              lat: double.parse(_latController.text),
-              lon: double.parse(_lonController.text),
-              imageFile: _imageFile,
-            );
-
-            if (success) {
-              final updatedEntity = Entity(
-                id: _entity!.id,
+            if (isOnline) {
+              final success = await _apiService.updateEntity(
+                id: _entity!.id!,
                 title: _titleController.text,
                 lat: double.parse(_latController.text),
                 lon: double.parse(_lonController.text),
-                image: _imageFile?.path ?? _entity!.image,
+                imageFile: _imageFile,
               );
 
-              await _dbHelper.updateEntity(updatedEntity);
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Entity updated successfully'),
-                    duration: Duration(seconds: 2),
-                  ),
+              if (success) {
+                final updatedEntity = Entity(
+                  id: _entity!.id,
+                  title: _titleController.text,
+                  lat: double.parse(_latController.text),
+                  lon: double.parse(_lonController.text),
+                  image: _imageFile?.path ?? _entity!.image,
                 );
-                Navigator.of(context).pop();
+
+                // Update in local SQLite database
+                await _dbHelper.updateEntity(updatedEntity);
+                
+                // Update in MongoDB
+                try {
+                  await _mongoDBHelper.updateEntity(updatedEntity);
+                  print('Entity updated in MongoDB');
+                } catch (e) {
+                  print('MongoDB update failed: $e');
+                }
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Entity updated successfully'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                  Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+                }
               }
+            } else {
+              _updateOffline();
             }
           } catch (e) {
             print('Error updating entity: $e');
-            // Try offline mode if online fails
-            final updatedEntity = Entity(
-              id: _entity!.id,
-              title: _titleController.text,
-              lat: double.parse(_latController.text),
-              lon: double.parse(_lonController.text),
-              image: _imageFile?.path ?? _entity!.image,
-            );
-
-            await _dbHelper.updateEntity(updatedEntity);
-            await _dbHelper.markAsSynced(_entity!.id!, synced: false);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Entity updated locally. Will sync when online.'),
-                  duration: Duration(seconds: 3),
-                ),
-              );
-              Navigator.of(context).pop();
-            }
+            _updateOffline();
           }
         }
       } else {
         // Create new entity
-        if (_imageFile != null) {
-          try {
-            // Always try to create online first
-            final entityId = await _apiService.createEntity(
+        try {
+          if (isOnline) {
+            final id = await _apiService.createEntity(
               title: _titleController.text,
               lat: double.parse(_latController.text),
               lon: double.parse(_lonController.text),
               imageFile: _imageFile!,
             );
 
-            print('Entity created with ID: $entityId');
-
-            final newEntity = Entity(
-              id: entityId,
-              title: _titleController.text,
-              lat: double.parse(_latController.text),
-              lon: double.parse(_lonController.text),
-              image: _imageFile!.path,
-            );
-
-            await _dbHelper.insertEntity(newEntity);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Entity created successfully'),
-                  duration: Duration(seconds: 2),
-                ),
+            if (id > 0) {
+              final newEntity = Entity(
+                id: id,
+                title: _titleController.text,
+                lat: double.parse(_latController.text),
+                lon: double.parse(_lonController.text),
+                image: _imageFile?.path,
               );
-              Navigator.of(context).pop();
+
+              // Save to local SQLite database
+              await _dbHelper.insertEntity(newEntity);
+              
+              // Save to MongoDB
+              try {
+                await _mongoDBHelper.saveEntity(newEntity);
+                print('Entity saved to MongoDB');
+              } catch (e) {
+                print('MongoDB save failed: $e');
+              }
+
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Entity created successfully'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+              }
             }
-          } catch (e) {
-            print('Error creating entity online: $e');
-
-            final newEntity = Entity(
-              id: DateTime.now().millisecondsSinceEpoch,
-              title: _titleController.text,
-              lat: double.parse(_latController.text),
-              lon: double.parse(_lonController.text),
-              image: _imageFile!.path,
-            );
-
-            await _dbHelper.insertEntity(newEntity, synced: false);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Saved offline. Error: ${e.toString()}'),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-              Navigator.of(context).pop();
-            }
+          } else {
+            _createOffline();
           }
+        } catch (e) {
+          print('Error creating entity: $e');
+          _createOffline();
         }
       }
     } catch (e) {
+      print('Error saving form: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            duration: const Duration(seconds: 5),
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -289,9 +341,72 @@ class _EntityFormScreenState extends State<EntityFormScreen> {
     }
   }
 
+  Future<void> _updateOffline() async {
+    // Save offline and mark as needing sync
+    final updatedEntity = Entity(
+      id: _entity!.id,
+      title: _titleController.text,
+      lat: double.parse(_latController.text),
+      lon: double.parse(_lonController.text),
+      image: _imageFile?.path ?? _entity!.image,
+    );
 
+    await _dbHelper.updateEntity(updatedEntity);
+    await _dbHelper.markAsSynced(_entity!.id!, synced: false);
 
+    // Try to save to MongoDB even in offline mode (might work if MongoDB is locally available)
+    try {
+      await _mongoDBHelper.updateEntity(updatedEntity);
+      print('Entity updated in MongoDB while offline');
+    } catch (e) {
+      print('MongoDB offline update failed: $e');
+    }
 
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Entity saved offline. Will sync when online.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+    }
+  }
+
+  Future<void> _createOffline() async {
+    // Generate a temporary negative ID for offline entities
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final tempId = -(timestamp % 100000);
+
+    final newEntity = Entity(
+      id: tempId,
+      title: _titleController.text,
+      lat: double.parse(_latController.text),
+      lon: double.parse(_lonController.text),
+      image: _imageFile?.path,
+    );
+
+    // Save to local database and mark as not synced
+    await _dbHelper.insertEntity(newEntity, synced: false);
+
+    // Try to save to MongoDB even in offline mode
+    try {
+      await _mongoDBHelper.saveEntity(newEntity);
+      print('Entity saved to MongoDB while offline');
+    } catch (e) {
+      print('MongoDB offline save failed: $e');
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Entity saved offline. Will sync when online.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
+    }
+  }
 
   @override
   void dispose() {

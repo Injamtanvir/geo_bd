@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
@@ -10,10 +11,17 @@ class ApiService {
 
   Future<bool> isConnected() async {
     try {
-      final response = await http.get(Uri.parse(baseUrl));
-      return response.statusCode == 200;
+      final response = await http.get(Uri.parse(baseUrl))
+          .timeout(const Duration(seconds: 5));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } on SocketException catch (e) {
+      print('Network check failed - socket exception: $e');
+      return false;
+    } on TimeoutException catch (e) {
+      print('Network check failed - timeout: $e');
+      return false;
     } catch (e) {
-      print('Network check failed: $e');
+      print('Network check failed - other error: $e');
       return false;
     }
   }

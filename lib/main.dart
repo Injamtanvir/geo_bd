@@ -6,6 +6,9 @@ import 'screens/entity_list_screen.dart';
 import 'screens/auth_screen.dart';
 import 'services/auth_service.dart';
 import 'services/db_helper.dart';
+import 'services/mongodb_helper.dart';
+import 'package:provider/provider.dart';
+import 'utils/connectivity_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,10 +18,25 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
+  // Initialize local database
   final dbHelper = DatabaseHelper();
   await dbHelper.database;
 
-  runApp(const MyApp());
+  // Initialize MongoDB connection
+  try {
+    final mongoDBHelper = MongoDBHelper();
+    await mongoDBHelper.connect();
+    print("MongoDB connected successfully");
+  } catch (e) {
+    print("MongoDB connection failed: $e");
+  }
+
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ConnectivityProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -28,6 +46,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Geo Bangladesh App',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.green,
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -61,9 +80,12 @@ class AuthWrapper extends StatelessWidget {
         }
 
         final isLoggedIn = snapshot.data ?? false;
-
-        // Try to add security features using MongoDB Atlas Cluster but due to time sortage couldn't do it Properly
-        return const MapScreen();
+        
+        if (isLoggedIn) {
+          return const MapScreen();
+        } else {
+          return const AuthScreen();
+        }
       },
     );
   }

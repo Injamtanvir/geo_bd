@@ -2,10 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import '../models/entity.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/db_helper.dart';
+import '../services/mongodb_helper.dart';
+import '../services/sync_service.dart';
+import '../utils/connectivity_provider.dart';
 import '../widgets/app_drawer.dart';
 
 class MapScreen extends StatefulWidget {
@@ -20,12 +24,15 @@ class _MapScreenState extends State<MapScreen> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final MongoDBHelper _mongoDBHelper = MongoDBHelper();
+  final SyncService _syncService = SyncService();
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   List<Entity> _entities = [];
   bool _isLoading = true;
   bool _isOfflineMode = false;
   String _statusMessage = '';
+  bool _previousOnlineStatus = false;
 
   // Default position (Center of Bangladesh)
   final LatLng _defaultPosition = const LatLng(23.6850, 90.3563);
@@ -36,6 +43,31 @@ class _MapScreenState extends State<MapScreen> {
     _loadEntities();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check if connectivity status changed
+    final isOnline = Provider.of<ConnectivityProvider>(context).isOnline;
+    
+    // If we went from offline to online, trigger a sync
+    if (isOnline && !_previousOnlineStatus) {
+      _syncOfflineData();
+    }
+    
+    _previousOnlineStatus = isOnline;
+  }
+
+  Future<void> _syncOfflineData() async {
+    // Only attempt sync if we're in offline mode or if we need to sync
+    if (_isOfflineMode) {
+      final success = await _syncService.syncOfflineData();
+      if (success) {
+        // Reload entities after successful sync
+        _loadEntities();
+      }
+    }
+  }
+
   Future<void> _loadEntities() async {
     setState(() {
       _isLoading = true;
@@ -44,46 +76,50 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     try {
-      print('Attempting to load entities from API...');
-      try {
-        final apiEntities = await _apiService.getEntities();
+      final isOnline = Provider.of<ConnectivityProvider>(context, listen: false).isOnline;
+      
+      if (isOnline) {
+        print('Online mode: Attempting to load entities from API...');
+        try {
+          final apiEntities = await _apiService.getEntities();
 
-        if (apiEntities.isNotEmpty) {
-          print('Loaded ${apiEntities.length} entities from API successfully');
-          _entities = apiEntities;
+          if (apiEntities.isNotEmpty) {
+            print('Loaded ${apiEntities.length} entities from API successfully');
+            _entities = apiEntities;
 
-          for (var entity in _entities) {
-            await _dbHelper.insertEntity(entity);
+            // Save to local SQLite database for offline access
+            for (var entity in _entities) {
+              await _dbHelper.insertEntity(entity);
+            }
+            
+            // Sync with MongoDB for backup and authentication
+            try {
+              await _mongoDBHelper.syncEntities(_entities);
+              print('Entities synced with MongoDB');
+            } catch (e) {
+              print('MongoDB sync failed: $e');
+            }
+
+            setState(() {
+              _isOfflineMode = false;
+            });
+          } else {
+            print('API returned empty entity list');
+            throw Exception('No entities found on server');
           }
-
-          setState(() {
-            _isOfflineMode = false;
-          });
-        } else {
-          print('API returned empty entity list');
-          throw Exception('No entities found on server');
+        } catch (e) {
+          print('API error, falling back to local: $e');
+          await _loadLocalEntities();
         }
-      } catch (e) {
-        print('API error, falling back to local: $e');
-
-        _entities = await _dbHelper.getEntities();
-
-        if (_entities.isEmpty) {
-          print('Local database also returned empty entity list');
-        } else {
-          print('Loaded ${_entities.length} entities from local database');
-        }
-
-        setState(() {
-          _isOfflineMode = true;
-          _statusMessage = 'Using offline data. Check your internet connection.';
-        });
+      } else {
+        print('Offline mode detected');
+        await _loadLocalEntities();
       }
     } catch (e) {
       print('Error loading entities: $e');
       _entities = [];
       setState(() {
-        _statusMessage = 'Failed to load entities: $e';
+        // Removed status message
       });
     }
 
@@ -91,6 +127,29 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       _isLoading = false;
+    });
+  }
+
+  Future<void> _loadLocalEntities() async {
+    // First try SQLite database
+    _entities = await _dbHelper.getEntities();
+      
+    if (_entities.isEmpty) {
+      print('Local SQLite database is empty, trying MongoDB...');
+      
+      // If SQLite is empty, try MongoDB (might work if we have local MongoDB connection)
+      try {
+        _entities = await _mongoDBHelper.getEntities();
+        print('Loaded ${_entities.length} entities from MongoDB');
+      } catch (e) {
+        print('MongoDB load failed: $e');
+      }
+    } else {
+      print('Loaded ${_entities.length} entities from local SQLite database');
+    }
+
+    setState(() {
+      _isOfflineMode = true;
     });
   }
 
@@ -247,7 +306,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isOfflineMode ? 'Map (Offline Mode)' : 'Map'),
+        title: const Text('Map'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -267,11 +326,9 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       drawer: const AppDrawer(),
-      body: Stack(
-        children: [
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : GoogleMap(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : GoogleMap(
             onMapCreated: _onMapCreated,
             initialCameraPosition: CameraPosition(
               target: _defaultPosition,
@@ -284,23 +341,6 @@ class _MapScreenState extends State<MapScreen> {
             zoomControlsEnabled: true,
             compassEnabled: true,
           ),
-          if (_statusMessage.isNotEmpty)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                color: Colors.black.withOpacity(0.7),
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                child: Text(
-                  _statusMessage,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

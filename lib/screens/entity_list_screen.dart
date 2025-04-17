@@ -68,7 +68,6 @@ class _EntityListScreenState extends State<EntityListScreen> {
 
         setState(() {
           _isOfflineMode = true;
-          _statusMessage = 'Using offline data. Check your internet connection.';
         });
       }
     } catch (e) {
@@ -114,7 +113,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isOfflineMode ? 'Entity List (Offline Mode)' : 'Entity List'),
+        title: const Text('Entity List'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -125,42 +124,26 @@ class _EntityListScreenState extends State<EntityListScreen> {
       drawer: const AppDrawer(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-        children: [
-          if (_statusMessage.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(8),
-              color: Colors.amber,
-              width: double.infinity,
-              child: Text(
-                _statusMessage,
-                textAlign: TextAlign.center,
-              ),
-            ),
-          Expanded(
-            child: _entities.isEmpty
-                ? const Center(
-              child: Text(
-                'No entities found',
-                style: TextStyle(fontSize: 18),
-              ),
-            )
-                : RefreshIndicator(
-              onRefresh: _loadEntities,
-              child: ListView.builder(
-                itemCount: _entities.length,
-                itemBuilder: (ctx, index) {
-                  final entity = _entities[index];
-                  return EntityCard(
-                    entity: entity,
-                    onDelete: () => _deleteEntity(entity),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+          : _entities.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No entities found',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadEntities,
+                  child: ListView.builder(
+                    itemCount: _entities.length,
+                    itemBuilder: (ctx, index) {
+                      final entity = _entities[index];
+                      return EntityCard(
+                        entity: entity,
+                        onDelete: () => _deleteEntity(entity),
+                      );
+                    },
+                  ),
+                ),
     );
   }
 }
